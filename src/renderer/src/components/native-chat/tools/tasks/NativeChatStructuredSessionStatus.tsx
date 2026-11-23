@@ -68,8 +68,7 @@ export function NativeChatStructuredSessionStatus(props: {
     target,
     props.sessionId,
     props.isVisible,
-    backgroundTasks.workerDock,
-    expandedHere
+    backgroundTasks.workerDock
   )
   const approvals = useNativeChatPinnedWorkerApprovals(target, feed.party)
   const openApprovals = useMemo(
@@ -216,7 +215,6 @@ export function NativeChatStructuredSessionStatus(props: {
         indicatorActive={backgroundTasks.isMonitoring}
         supportsTaskStop={backgroundTasks.supportsStop}
         offersStopAll={backgroundTasks.offersStopAll}
-        incomplete={backgroundTasks.incomplete || !feed.available}
         stoppingTaskIds={new Set([...stop.stoppingTaskIds, ...owner.pending])}
         stoppingAll={stop.stoppingAll}
         expanded={expandedHere}

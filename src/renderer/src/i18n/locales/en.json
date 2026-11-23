@@ -22871,7 +22871,11 @@
         "contactUnavailable": " · Last confirmed contact unavailable",
         "runningCount": "{{count}} running",
         "cleared_one": "Cleared 1 worker",
-        "cleared_other": "Cleared {{count}} workers"
+        "cleared_other": "Cleared {{count}} workers",
+        "stopAll": "Stop all",
+        "clearFailed": "Clear failed",
+        "pillLabel_one": "{{count}} worker, latest: {{title}}",
+        "pillLabel_other": "{{count}} workers, latest: {{title}}"
       },
       "webhookSetup": {
         "heading": "Set up a webhook",

@@ -1,20 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Toaster } from '@/components/ui/sonner'
 import { useLatestHandler } from '@/lib/use-latest-handler'
 import { useWorkerDockOwnerActions } from './use-worker-dock-owner-actions'
 import {
   WorkerDockAcknowledge,
   WorkerDockStop
 } from '../../../../../../../shared/orchestration/dock/worker-dock'
-import { NativeChatDock } from '../../../pane/dock/NativeChatDock'
-import { NativeChatQuestionCard } from '../../../prompts/NativeChatQuestionCard'
-import { NativeChatQueuedMessageList } from '../../../queue/NativeChatQueuedMessageList'
-import type { StructuredAgentSessionQueuedMessagesController } from '../../../queue/use-structured-agent-session-queued-messages'
 import type { AgentSessionBackgroundTask } from '../../../../../../../shared/agent-session/background-tasks/agent-session-background-task-wire'
 import { defineFixture } from '../../../../../component-fixtures/component-fixture'
-import { nativeChatAppearanceStyle } from '../../../appearance/native-chat-appearance-style'
+import { workerDockFixturePane } from './worker-dock-fixture-pane'
 import { NativeChatBackgroundTasksStatus } from '../NativeChatBackgroundTasksStatus'
-import { NativeChatWorkerDockFrame } from './NativeChatWorkerDockFrame'
 import type { WorkerDockRowView } from './WorkerDockRow'
 
 // A live strip for the rendered interaction suite (tests/tools/worker-dock-rendered): it keeps its
@@ -45,7 +39,7 @@ const TITLES = [
 ]
 
 type WorkerDockHarnessEvent = {
-  action: 'remote-stop' | 'stop' | 'clear' | 'clear-all' | 'open' | 'restore'
+  action: 'remote-stop' | 'stop-all' | 'stop' | 'clear' | 'clear-all' | 'open' | 'restore'
   id: string
 }
 type HarnessApi = {
@@ -75,10 +69,32 @@ function worker(index: number, state: WorkerDockRowView['state'], remote: boolea
   } satisfies WorkerDockRowView
 }
 
-function seed(count: number, failed: number, remote: boolean): WorkerDockRowView[] {
-  return Array.from({ length: count }, (_, index) =>
-    worker(index, index < failed ? 'failed' : 'running', remote)
-  )
+const LONG_TITLE =
+  'Fix-forward: bind the listing to the resolver so a renamed branch keeps its open pull request and review comments'
+
+type Seed = { ask?: boolean; variety?: boolean; long?: boolean }
+function seed(count: number, failed: number, remote: boolean, options: Seed): WorkerDockRowView[] {
+  return Array.from({ length: count }, (_, index) => {
+    const row = worker(index, index < failed ? 'failed' : 'running', remote)
+    const title = options.long && index % 2 === 0 ? `${LONG_TITLE} (${index + 1})` : row.title
+    // The newest running worker asks a question: it outranks the failures in the pill and card.
+    if (options.ask && index === failed) {
+      return {
+        ...row,
+        title,
+        state: 'needs-you' as const,
+        changedAt: Date.now() - 30_000,
+        question: 'Approve: run the migration against the staging copy of the orders database?'
+      }
+    }
+    if (options.variety && count >= 3 && index === count - 1) {
+      return { ...row, title, state: 'idle' as const, stoppable: false }
+    }
+    if (options.variety && count >= 4 && index === count - 2) {
+      return { ...row, title, state: 'coordinator' as const }
+    }
+    return { ...row, title }
+  })
 }
 
 function Harness({
@@ -86,15 +102,18 @@ function Harness({
   failed,
   remote = false,
   open = false,
-  command = false
+  command = false,
+  stopAll = false,
+  ...options
 }: {
   count: number
   failed: number
   remote?: boolean
   open?: boolean
   command?: boolean
-}) {
-  const [rows, setRows] = useState(() => seed(count, failed, remote))
+  stopAll?: boolean
+} & Seed) {
+  const [rows, setRows] = useState(() => seed(count, failed, remote, options))
   const [tasks, setTasks] = useState<AgentSessionBackgroundTask[]>(() =>
     command
       ? [{ id: 'shell-fixture', kind: 'command', description: 'Check the build', state: 'working' }]
@@ -170,7 +189,7 @@ function Harness({
       tasks={tasks}
       settledTasks={[]}
       supportsTaskStop
-      offersStopAll={false}
+      offersStopAll={stopAll}
       stoppingTaskIds={owner.pending}
       stoppingAll={false}
       indicatorActive
@@ -181,6 +200,8 @@ function Harness({
         if (id) {
           record({ action: 'remote-stop', id })
           setTasks((current) => current.filter((task) => task.id !== id))
+        } else {
+          record({ action: 'stop-all', id: '' })
         }
       }}
       workerRows={new Map(rows.map((row) => [row.id, row]))}
@@ -192,138 +213,89 @@ function Harness({
   )
 }
 
-/** The strip in a full-height chat pane above a message box, as a chat shows it. */
-const queue: StructuredAgentSessionQueuedMessagesController = {
-  cards: [
-    {
-      messageId: 'fixture-queued',
-      position: 0,
-      state: 'waiting',
-      hold: 'turn',
-      text: 'Check the release notes.'
-    }
-  ],
-  queueCapable: true,
-  holds: () => false,
-  agentMail: [],
-  agentMailEditable: () => false,
-  mailLeads: false,
-  stopping: false,
-  clearCapable: true,
-  pause: null,
-  resume: async () => true,
-  clear: async () => true,
-  queuePending: null,
-  pending: () => null,
-  steer: async () => {},
-  remove: async () => {},
-  editCapable: false,
-  editor: undefined,
-  edit: async () => {},
-  steerHead: undefined,
-  isWorking: true
-}
-
-function chatPane(strip: React.ReactNode, sections?: 'question' | 'queue' | 'both') {
-  return (
-    <div
-      data-native-chat-root=""
-      className="native-chat-appearance flex h-[calc(100vh-2rem)] flex-col bg-chat-canvas"
-      style={nativeChatAppearanceStyle({})}
-    >
-      <div
-        data-fixture-transcript=""
-        className="scrollbar-sleek min-h-0 flex-1 space-y-2 overflow-y-auto p-3 text-sm text-chat-foreground"
-      >
-        {Array.from({ length: 30 }, (_, index) => (
-          <p key={index}>Transcript line {index + 1}: the coordinator reports on its workers.</p>
-        ))}
-      </div>
-      <Toaster />
-      <NativeChatDock>
-        <NativeChatWorkerDockFrame>{strip}</NativeChatWorkerDockFrame>
-        {sections === 'question' || sections === 'both' ? (
-          <NativeChatQuestionCard
-            prompt={{
-              questions: [
-                {
-                  header: 'Release notes',
-                  question: 'Which change should the release notes lead with?',
-                  multiSelect: false,
-                  options: [
-                    {
-                      label: 'Worker reliability',
-                      description: 'Show the active work and recent failures.'
-                    },
-                    {
-                      label: 'Composer layout',
-                      description: 'Highlight changes to the message box.'
-                    }
-                  ]
-                }
-              ]
-            }}
-            onAnswer={() => {}}
-            onCancel={() => {}}
-          />
-        ) : null}
-        {sections === 'queue' || sections === 'both' ? (
-          <NativeChatQueuedMessageList controller={queue} chatWorktreeId={null} />
-        ) : null}
-        <div className="shrink-0 px-3 pt-2 pb-4 sm:px-4">
-          <div className="rounded-xl border border-chat-composer-border bg-chat-composer-surface p-1.5 shadow-xs">
-            <textarea
-              data-fixture-composer=""
-              aria-label="Message"
-              className="block min-h-12 w-full resize-none bg-transparent px-2 py-2 text-sm text-chat-foreground outline-none"
-              defaultValue=""
-              placeholder="Ask anything, / for commands, @ for context"
-            />
-          </div>
-        </div>
-      </NativeChatDock>
-    </div>
-  )
-}
-
 export const twentyOpen720 = defineFixture({
   width: 720,
-  render: () => chatPane(<Harness count={20} failed={3} open />)
+  render: () => workerDockFixturePane(<Harness count={20} failed={3} open />)
 })
 export const twentyFolded720 = defineFixture({
   width: 720,
-  render: () => chatPane(<Harness count={20} failed={3} />)
+  render: () => workerDockFixturePane(<Harness count={20} failed={3} />)
 })
 export const twentyOpen390 = defineFixture({
   width: 390,
-  render: () => chatPane(<Harness count={20} failed={3} open />)
+  render: () => workerDockFixturePane(<Harness count={20} failed={3} open />)
 })
 export const twentyOpen320 = defineFixture({
   width: 320,
-  render: () => chatPane(<Harness count={20} failed={3} open />)
+  render: () => workerDockFixturePane(<Harness count={20} failed={3} open />)
+})
+export const oneFolded720 = defineFixture({
+  width: 720,
+  render: () => workerDockFixturePane(<Harness count={1} failed={0} />)
+})
+export const threeFolded720 = defineFixture({
+  width: 720,
+  render: () => workerDockFixturePane(<Harness count={3} failed={0} variety />)
+})
+export const threeOpen720 = defineFixture({
+  width: 720,
+  render: () => workerDockFixturePane(<Harness count={3} failed={1} variety open />)
+})
+export const askOpen720 = defineFixture({
+  width: 720,
+  render: () => workerDockFixturePane(<Harness count={6} failed={2} ask variety open />)
+})
+export const askFolded720 = defineFixture({
+  width: 720,
+  render: () => workerDockFixturePane(<Harness count={6} failed={2} ask variety />)
+})
+export const stopAllOpen720 = defineFixture({
+  width: 720,
+  render: () => workerDockFixturePane(<Harness count={5} failed={2} stopAll open />)
+})
+export const longFolded300 = defineFixture({
+  width: 300,
+  render: () => workerDockFixturePane(<Harness count={3} failed={0} long />)
+})
+export const longOpen300 = defineFixture({
+  width: 300,
+  render: () => workerDockFixturePane(<Harness count={20} failed={3} long open />)
+})
+// Scrolled up from the end, so Jump to latest shows and stacks above the pill.
+export const jumpFolded720 = defineFixture({
+  width: 720,
+  render: () => workerDockFixturePane(<Harness count={3} failed={1} />),
+  interact: async (frame) => {
+    const transcript = frame.querySelector<HTMLElement>('[data-fixture-transcript]')
+    if (transcript) {
+      transcript.scrollTop = 0
+      transcript.dispatchEvent(new Event('scroll'))
+    }
+    await new Promise((resolve) => setTimeout(resolve, 300))
+  }
 })
 export const oneOpen720 = defineFixture({
   width: 720,
-  render: () => chatPane(<Harness count={1} failed={0} open />)
+  render: () => workerDockFixturePane(<Harness count={1} failed={0} open />)
 })
 export const fourOpen720 = defineFixture({
   width: 720,
-  render: () => chatPane(<Harness count={4} failed={1} open />)
+  render: () => workerDockFixturePane(<Harness count={4} failed={1} open />)
 })
 export const remoteOpen720 = defineFixture({
   width: 720,
-  render: () => chatPane(<Harness count={6} failed={2} remote open />)
+  render: () => workerDockFixturePane(<Harness count={6} failed={2} remote open />)
 })
 
 export const remoteCommand720 = defineFixture({
   width: 720,
-  render: () => chatPane(<Harness count={6} failed={2} remote open command />)
+  render: () => workerDockFixturePane(<Harness count={6} failed={2} remote open command />)
 })
 
 function stack(width: number, sections: 'question' | 'queue' | 'both') {
   return defineFixture({
     width,
-    render: () => chatPane(<Harness count={9} failed={2} command />, sections)
+    render: () => workerDockFixturePane(<Harness count={9} failed={2} command />, sections)
   })
 }
 

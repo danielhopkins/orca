@@ -20,7 +20,6 @@ it('opens a command through its command route and retains capability-gated untar
         settledTasks={[]}
         supportsTaskStop={false}
         offersStopAll
-        incomplete
         stoppingTaskIds={new Set()}
         stoppingAll={false}
         indicatorActive
@@ -40,7 +39,7 @@ it('opens a command through its command route and retains capability-gated untar
     opener
   )
   expect(agent).not.toHaveBeenCalled()
-  fireEvent.click(screen.getByRole('button', { name: /^Stop$/ }))
+  fireEvent.click(screen.getByRole('button', { name: /^Stop all$/ }))
   expect(stop).toHaveBeenCalledWith()
 })
 
