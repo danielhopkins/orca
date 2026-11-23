@@ -243,7 +243,7 @@ export function BotItemBody({
     [fileContext?.fileLinkContext, runtimeContext]
   )
   // `waitingLine`: the question the comment box names, until a reply is on its way.
-  const { steps, sent, quick, fromBox, waitingLine } = useBotItemQuestionSteps(
+  const { steps, sent, quick, fromBox, answerNone, waitingLine } = useBotItemQuestionSteps(
     bot,
     item,
     view.events,
@@ -257,12 +257,16 @@ export function BotItemBody({
         : {
             send: quick,
             edit: (text: string) => comment.current?.fill(text),
-            recover: (text: string) => comment.current?.fill(text, true),
+            recover: (text: string) => {
+              // A comment of its own: it answers no line, whatever the box names next.
+              answerNone()
+              comment.current?.fill(text, true)
+            },
             type: () => comment.current?.answer(),
             steps,
             sent
           },
-    [deleted, comment, quick, steps, sent]
+    [deleted, comment, quick, answerNone, steps, sent]
   )
   // The waiting question's comment, with its words and quick replies, is read even when it is older
   // than the loaded page (later comments can push it back): earlier pages load until it shows.
@@ -278,10 +282,7 @@ export function BotItemBody({
       loadEarlier()
     }
   }, [questionUnread, hasEarlier, earliest, loadEarlier])
-  const waitingOn =
-    waitingLine && !pending.shown.some(({ failed }) => !failed)
-      ? { ...waitingLine, asker: item.owner.name ?? bot.name }
-      : null
+  const waitingOn = waitingLine ? { ...waitingLine, asker: item.owner.name ?? bot.name } : null
   const links = useNativeChatLinkActions(fileContext?.fileLinkContext ?? null, pane, {
     sessionId: null,
     isVisible: true
