@@ -17,6 +17,7 @@ import {
   requireRetainedWorkerTerminal,
   type RetainedWorkerAuthority
 } from '../worker-terminal/worker-terminal-transfer'
+import { RETAINED_CHAT_BEFORE_BRIEF_STAGE } from './restart-cut-worker-start'
 
 export function createStartingWorkerDispatch(
   this: OrchestrationDb,
@@ -56,7 +57,11 @@ export function createStartingWorkerDispatch(
     requiredCreatorDispatchId?: string
     /** The settled Dispatch whose worker this follow-up continues; only one follow-up claims it. */
     followUpOf?: string
-    retainedChat?: { authority: RetainedWorkerAuthority; worktreeId: string; effects: unknown[] }
+    retainedChat?: {
+      authority: RetainedWorkerAuthority
+      worktreeId: string
+      reopenEffects?: unknown[]
+    }
     /** Another mutation's pending receipt (a send's follow-up), told what this start accepted. */
     acceptedBy?: { callerFingerprint: string; requestId: string }
     /** The Dispatch whose unread mail this follow-up's Task tells it to check, moved to it in the claim. */
@@ -213,14 +218,15 @@ export function createStartingWorkerDispatch(
          ) VALUES (?, ?, 'starting', 'accepted', ?)`
       )
       .run(id, params.runtimeEpoch ?? null, JSON.stringify(params.startOptions))
-    if (retained) {
+    if (retained?.reopenEffects) {
       const { authority } = retained
       this.prepareStartingWorkerAuthority({
         dispatchId: id,
         ...authority,
         worktreeId: retained.worktreeId,
-        effects: retained.effects,
-        setupState: 'not_applicable'
+        effects: retained.reopenEffects,
+        setupState: 'not_applicable',
+        stage: RETAINED_CHAT_BEFORE_BRIEF_STAGE
       })
       this.transferWorkerTerminalResourceStatement({
         ...authority,

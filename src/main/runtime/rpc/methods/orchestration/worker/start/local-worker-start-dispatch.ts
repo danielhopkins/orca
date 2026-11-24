@@ -61,15 +61,22 @@ export function createLocalWorkerStartDispatch(
     assertWorkerFollowUpUnclaimed(db, followUp.of)
   }
   // No await from the native tab and claim checks through the Dispatch insert.
-  const retained = followUp?.retainedChat
-    ? prepareRetainedWorkerChat(runtime, db, followUp.retainedChat, resolvedWorktreeId)
+  const candidate = followUp?.retainedChat
+    ? prepareRetainedWorkerChat(
+        runtime,
+        db,
+        followUp.retainedChat,
+        resolvedWorktreeId,
+        Boolean(params.terminal)
+      )
     : undefined
+  const retained = params.terminal ? undefined : candidate
   refuseClaimedWorkerTerminal(
     db,
-    retained?.authority.handle ?? params.terminal,
+    candidate?.authority.handle ?? params.terminal,
     runtime,
     followUp?.of,
-    retained?.authority.paneKey
+    candidate?.authority.paneKey
   )
   const run = retainedRun ?? bindRun()
   const effects: WorkerEffect[] = resolvedWorktreeId
@@ -127,14 +134,18 @@ export function createLocalWorkerStartDispatch(
     runtimeEpoch: runtime.getRuntimeId(),
     mutationReceipt: orchestrationMutation,
     followUpOf: followUp?.of,
-    retainedChat: retained
+    retainedChat: candidate
       ? {
-          authority: retained.authority,
-          worktreeId: retained.worktreeId,
-          effects: [
-            ...effects,
-            { kind: 'terminal', role: 'agent', action: 'reused', id: retained.authority.handle }
-          ]
+          authority: candidate.authority,
+          worktreeId: candidate.worktreeId,
+          ...(retained
+            ? {
+                reopenEffects: [
+                  ...effects,
+                  { kind: 'terminal', role: 'agent', action: 'reused', id: retained.authority.handle }
+                ]
+              }
+            : {})
         }
       : undefined,
     acceptedBy: followUp?.acceptedBy,

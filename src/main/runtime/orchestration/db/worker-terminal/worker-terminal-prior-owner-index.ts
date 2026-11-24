@@ -7,6 +7,14 @@ const priorOwnerIdsSql = (row: 'NEW' | 'r') =>
 const INSERT_PRIOR_OWNERS_SQL = `INSERT OR IGNORE INTO worker_terminal_resource_prior_owners (dispatch_id, resource_id)
     SELECT prior.value, NEW.id FROM ${priorOwnerIdsSql('NEW')} WHERE prior.type = 'text';`
 
+// Match the exact append written by the transfer, including the entire unchanged prefix.
+const OWNER_APPEND_SQL = `OLD.id IS NEW.id AND OLD.owner_dispatch_id IS NOT NEW.owner_dispatch_id
+  AND NEW.prior_owner_dispatch_ids IS CASE
+    WHEN substr(OLD.prior_owner_dispatch_ids, 1, 1) = '['
+      AND json_valid(OLD.prior_owner_dispatch_ids)
+    THEN json_insert(OLD.prior_owner_dispatch_ids, '$[#]', OLD.owner_dispatch_id)
+  END`
+
 // Stored as written, so a changed body differs from sqlite_master and is reinstalled.
 const PRIOR_OWNER_TRIGGERS: Record<string, string> = {
   trg_worker_terminal_prior_owners_insert: `CREATE TRIGGER trg_worker_terminal_prior_owners_insert
@@ -16,12 +24,20 @@ BEGIN
 END`,
   trg_worker_terminal_prior_owners_update: `CREATE TRIGGER trg_worker_terminal_prior_owners_update
 AFTER UPDATE OF id, prior_owner_dispatch_ids ON worker_terminal_resources
-WHEN OLD.id IS NOT NEW.id OR OLD.prior_owner_dispatch_ids IS NOT NEW.prior_owner_dispatch_ids
+WHEN (OLD.id IS NOT NEW.id OR OLD.prior_owner_dispatch_ids IS NOT NEW.prior_owner_dispatch_ids)
+  AND NOT (${OWNER_APPEND_SQL})
 BEGIN
   DELETE FROM worker_terminal_resource_prior_owners WHERE resource_id = OLD.id
     AND (OLD.id IS NOT NEW.id OR dispatch_id NOT IN (
       SELECT prior.value FROM ${priorOwnerIdsSql('NEW')} WHERE prior.type = 'text'));
   ${INSERT_PRIOR_OWNERS_SQL}
+END`,
+  trg_worker_terminal_prior_owners_append: `CREATE TRIGGER trg_worker_terminal_prior_owners_append
+AFTER UPDATE OF prior_owner_dispatch_ids ON worker_terminal_resources
+WHEN ${OWNER_APPEND_SQL}
+BEGIN
+  INSERT OR IGNORE INTO worker_terminal_resource_prior_owners (dispatch_id, resource_id)
+    VALUES (OLD.owner_dispatch_id, NEW.id);
 END`,
   trg_worker_terminal_prior_owners_delete: `CREATE TRIGGER trg_worker_terminal_prior_owners_delete
 AFTER DELETE ON worker_terminal_resources

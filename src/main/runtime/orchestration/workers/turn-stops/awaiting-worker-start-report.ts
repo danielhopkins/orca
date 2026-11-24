@@ -5,7 +5,7 @@ import type { WorkerDispatchRow } from '../../db/orchestration-records'
 import { redactWorkerTerminalView } from '../../terminal-authority/views/worker-terminal-redaction'
 import { observeWorker } from './worker-presence-report'
 import {
-  chatStartBeforeBrief,
+  RETAINED_CHAT_BEFORE_BRIEF_STAGE,
   settleRestartCutWorkerStart
 } from '../../db/worker-dispatch/restart-cut-worker-start'
 import { isWorkerAwaitingAgent } from '../../db/worker-dispatch/worker-awaiting-agent-stage'
@@ -125,8 +125,8 @@ export function settleRestartCutStart(
   const worker = db.getWorkerDispatch(dispatchId)
   const runtimeId = runtime.getRuntimeId()
   const cut = worker?.state === 'starting' && worker.runtime_epoch !== runtimeId
-  // A chat records dispatch_input before submitting the brief. Attaching its authority only owns the chat.
-  const chatBeforeBrief = cut && chatStartBeforeBrief(worker)
+  // Older writers could submit while still at authority_attached.
+  const chatBeforeBrief = cut && worker.stage === RETAINED_CHAT_BEFORE_BRIEF_STAGE
   if (
     cut &&
     (!worker.agent_terminal_handle || chatBeforeBrief) &&
