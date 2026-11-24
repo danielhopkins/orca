@@ -20,8 +20,8 @@ export function WorkerDockGlyph({ glyph }: { glyph: Glyph }) {
         <span
           className={cn(
             'block size-2 rounded-full',
-            glyph === 'failed' && 'bg-red-500',
-            glyph === 'done' && 'bg-emerald-500',
+            glyph === 'failed' && 'bg-destructive',
+            glyph === 'done' && 'bg-status-success',
             glyph === 'queued' && 'border-[1.5px] border-muted-foreground'
           )}
         />

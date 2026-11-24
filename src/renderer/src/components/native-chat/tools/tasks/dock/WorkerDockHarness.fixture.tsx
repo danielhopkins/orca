@@ -7,7 +7,7 @@ import {
 } from '../../../../../../../shared/orchestration/dock/worker-dock'
 import type { AgentSessionBackgroundTask } from '../../../../../../../shared/agent-session/background-tasks/agent-session-background-task-wire'
 import { defineFixture } from '../../../../../component-fixtures/component-fixture'
-import { workerDockFixturePane } from './worker-dock-fixture-pane'
+import { workerDockFixturePane } from './worker-dock-pane-fixture'
 import { NativeChatBackgroundTasksStatus } from '../NativeChatBackgroundTasksStatus'
 import type { WorkerDockRowView } from './WorkerDockRow'
 
