@@ -128,8 +128,9 @@ export function WorkerDockRoster(props: {
   const virtual = rowWindow.virtualizer
   const visibleItems = rowWindow.drawn
   const [fade, setFade] = useState<string | undefined>(undefined)
-  const refade = () =>
+  const refade = useLatestHandler(() =>
     setFade(viewport.current ? workerDockScrollFade(viewport.current) : undefined)
+  )
   const budget = useWorkerDockCardBudget({
     root,
     pill,
@@ -137,8 +138,8 @@ export function WorkerDockRoster(props: {
     open: props.expanded,
     rows: items.length
   })
-  // oxlint-disable-next-line react-hooks/exhaustive-deps -- re-read after the list's size changes
-  useLayoutEffect(refade, [props.expanded, items.length, budget])
+  // Re-read after the list's size changes; scrolling re-reads it from onScroll.
+  useLayoutEffect(() => refade(), [refade, props.expanded, items.length, budget])
   // With no rows, the pill says only what is known: the provider reports work it does not list,
   // or the worker read failed (which claims nothing about whether anything runs).
   const unlisted = items.length === 0 && Boolean(props.incomplete)

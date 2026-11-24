@@ -73,11 +73,11 @@ function Harness({
   const [detailed, setDetailed] = useState(() => new Set(rows.slice(0, lazy).map((row) => row.id)))
   const [shown, setShown] = useState<{ row: WorkerDockRowView; opener: HTMLElement } | null>(null)
   const [failures] = useState(() => ({ left: failReads }))
-  const [reads] = useState(() => ({
-    log: [] as string[],
-    hold: false,
-    waiting: [] as ((stale: boolean) => void)[]
-  }))
+  const [reads] = useState<{
+    log: string[]
+    hold: boolean
+    waiting: ((stale: boolean) => void)[]
+  }>(() => ({ log: [], hold: false, waiting: [] }))
   const loadWindow = async (anchor: string) => {
     reads.log.push(anchor)
     if (reads.hold) {
