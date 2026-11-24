@@ -49,6 +49,13 @@ type HarnessApi = {
   start: (title: string) => void
   finish: (id: string) => void
 }
+declare global {
+  // oxlint-disable-next-line typescript/consistent-type-definitions -- Window requires declaration merging.
+  interface Window {
+    __workerDockHarnesses?: HarnessApi[]
+  }
+}
+
 function worker(index: number, state: WorkerDockRowView['state'], remote: boolean) {
   const at = Date.now() - (index + 2) * 60_000
   const failed = state === 'failed' || state === 'unexpected'
@@ -166,9 +173,7 @@ function Harness({
     }
     Object.assign(window, { __workerDockHarness: api })
     // Every mounted harness, in mount order, for scenes with more than one pane.
-    const all = ((
-      window as unknown as { __workerDockHarnesses?: HarnessApi[] }
-    ).__workerDockHarnesses ??= [])
+    const all = (window.__workerDockHarnesses ??= [])
     all.push(api)
     return () => {
       Reflect.deleteProperty(window, '__workerDockHarness')

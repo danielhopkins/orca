@@ -203,7 +203,7 @@ export async function runLoadingAndLayerChecks({ check, scene, assert }) {
     ['normal height', {}],
     ['a 340 x 250 pane', { width: 340, height: 250 }]
   ]) {
-    await check(`a full click on Jump to latest over the open card jumps (${label})`, () =>
+    await check(`a full click on Jump to latest over the open card jumps (${String(label)})`, () =>
       scene('jumpFolded720', options, async (page) => {
         await toggle(page).click()
         await card(page).waitFor()
