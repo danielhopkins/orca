@@ -40,8 +40,10 @@ function Age({ at, visible }: { at: number | null; visible: boolean }) {
 }
 
 /** One 30px card row: status mark, title, time, then Stop or Clear and an arrow on hover or focus.
- *  The open button stretches over the whole row, so a press anywhere but the action opens it. */
+ *  The open button stretches over the whole row, so a press anywhere but the action opens it. A row
+ *  whose details have not arrived yet keeps the same button, so focus on it survives their arrival. */
 export const WorkerDockRow = memo(function WorkerDockRow({
+  id,
   row,
   mixed,
   visible,
@@ -49,7 +51,9 @@ export const WorkerDockRow = memo(function WorkerDockRow({
   onOpen,
   onAction
 }: {
-  row: WorkerDockRowView
+  /** The identity's id, for a row whose details are still loading. */
+  id?: string
+  row: WorkerDockRowView | undefined
   mixed: boolean
   visible: boolean
   pending: boolean
@@ -57,50 +61,63 @@ export const WorkerDockRow = memo(function WorkerDockRow({
   onAction: (row: WorkerDockRowView, action: 'stop' | 'clear') => void
 }) {
   const t = useTranslate()
-  const title = workerDockRowTitle(row)
+  const rowId = row?.id ?? id ?? ''
+  const loading = t('components.native-chat.workerDock.loadingWorker', 'Loading worker…')
+  const title = row ? workerDockRowTitle(row) : loading
   // An unreadable state has no label anywhere: the row reads as its title and time only.
-  const state = row.retired
-    ? t('components.native-chat.workerDock.doneResult', 'Done · open result')
-    : row.state === 'unavailable'
-      ? ''
-      : workerDockStateLabel(t, row.state)
+  const state = !row
+    ? ''
+    : row.retired
+      ? t('components.native-chat.workerDock.doneResult', 'Done · open result')
+      : row.state === 'unavailable'
+        ? ''
+        : workerDockStateLabel(t, row.state)
   // A remote chat's worker is shown, not driven, here: its label says where to act instead.
   const remote =
-    row.kind === 'worker' && row.ownerActionsAvailable === false
+    row?.kind === 'worker' && row.ownerActionsAvailable === false
       ? t(
           'components.native-chat.workerDock.remoteOwner',
           'Stop or clear this from the computer it runs on'
         )
       : ''
   const reason =
-    (row.state === 'failed' || row.state === 'unexpected' || row.state === 'stopping') && row.reason
+    row &&
+    (row.state === 'failed' || row.state === 'unexpected' || row.state === 'stopping') &&
+    row.reason
       ? row.reason
       : ''
-  const label = [mixed ? workerDockKindLabel(t, row.kind) : '', title, state, reason, remote]
+  const label = [mixed && row ? workerDockKindLabel(t, row.kind) : '', title, state, reason, remote]
     .filter(Boolean)
     .join(' · ')
-  const tooltip = [row.name, title === row.title ? '' : row.title, title, state, reason, remote]
-    .filter(Boolean)
-    .join(' · ')
+  const tooltip = row
+    ? [row.name, title === row.title ? '' : row.title, title, state, reason, remote]
+        .filter(Boolean)
+        .join(' · ')
+    : undefined
   return (
     <div
-      data-worker-dock-row={row.id}
-      data-worker-dock-state={row.state}
+      data-worker-dock-row={rowId}
+      data-worker-dock-state={row?.state ?? 'loading'}
       className="group/worker relative flex h-[30px] min-w-0 items-center gap-1 rounded-md pr-2 text-foreground hover:bg-accent has-focus-visible:bg-accent"
     >
       <button
         type="button"
-        data-worker-dock-open={row.id}
+        data-worker-dock-open={rowId}
         aria-label={label}
+        aria-disabled={row ? undefined : true}
         title={tooltip}
-        className="flex h-full min-w-0 flex-1 items-center gap-2 pl-2 text-left text-sm after:absolute after:inset-0 after:rounded-md focus-visible:outline-none focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-ring"
-        onClick={(event) => onOpen(row, event.currentTarget)}
+        className="flex h-full min-w-0 flex-1 items-center gap-2 pl-2 text-left text-sm after:absolute after:inset-0 after:rounded-md focus-visible:outline-none focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-ring aria-disabled:text-muted-foreground"
+        onClick={(event) => {
+          if (row) {
+            onOpen(row, event.currentTarget)
+          }
+        }}
       >
-        <WorkerDockGlyph glyph={workerDockGlyph(row)} />
+        <WorkerDockGlyph glyph={row ? workerDockGlyph(row) : 'queued'} />
         <span className="min-w-0 flex-1 truncate">{title}</span>
-        <Age at={row.changedAt} visible={visible} />
+        {row ? <Age at={row.changedAt} visible={visible} /> : null}
       </button>
-      <WorkerDockRowAction row={row} pending={pending} onAction={onAction} />
+      {row ? <WorkerDockRowAction row={row} pending={pending} onAction={onAction} /> : null}
       <ArrowRight
         aria-hidden="true"
         data-worker-dock-arrow=""

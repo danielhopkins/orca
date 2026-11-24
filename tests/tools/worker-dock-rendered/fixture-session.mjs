@@ -2,6 +2,34 @@
 // loader, and the PASS/FAIL bookkeeping. Imported by run.mjs.
 import { chromium } from 'playwright-core'
 
+// The worker pill and card as the checks read them.
+export const toggle = (page) => page.locator('[data-worker-dock-pill]')
+export const card = (page) => page.locator('[data-worker-dock-card]')
+export const region = (page) => page.locator('[data-worker-dock-card] [role="region"]')
+export const rows = (page) =>
+  page.evaluate(() =>
+    [...document.querySelectorAll('[data-worker-dock-row]')].map((row) => ({
+      id: row.getAttribute('data-worker-dock-row'),
+      state: row.getAttribute('data-worker-dock-state') ?? ''
+    }))
+  )
+export const scrollState = (page) =>
+  region(page).evaluate((element) => ({
+    top: element.scrollTop,
+    height: element.scrollHeight,
+    client: element.clientHeight
+  }))
+export const events = (page) => page.evaluate(() => window.__workerDockHarness?.events ?? [])
+export const expanded = async (page) =>
+  (await toggle(page).getAttribute('aria-expanded')) === 'true'
+export const focusedRow = (page) =>
+  page.evaluate(
+    () =>
+      document.activeElement
+        ?.closest('[data-worker-dock-row]')
+        ?.getAttribute('data-worker-dock-row') ?? null
+  )
+
 export async function createFixtureSession({ base, filter, fixture: FIXTURE }) {
   const results = []
   const browser = await chromium.launch({

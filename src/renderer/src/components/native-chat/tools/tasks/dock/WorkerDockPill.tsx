@@ -10,6 +10,9 @@ import type { WorkerDockGlyph as Glyph } from './worker-dock-card-order'
  *  next box (message box, question, queue) already pads by 8px. */
 const PILL_ROOM = '36px'
 
+// Where Jump to latest rests: over the pill, or over the open card, never under either.
+const JUMP_LIFT = '--native-chat-worker-jump-lift'
+
 export const WORKER_DOCK_FLOAT_CLASS =
   'pointer-events-none absolute inset-x-0 bottom-full z-20 h-0 [[data-native-chat-dock-fit~=dock]_&]:static [[data-native-chat-dock-fit~=dock]_&]:flex [[data-native-chat-dock-fit~=dock]_&]:h-auto [[data-native-chat-dock-fit~=dock]_&]:flex-col [[data-native-chat-dock-fit~=dock]_&]:items-center [[data-native-chat-dock-fit~=dock]_&]:gap-2 [[data-native-chat-dock-fit~=dock]_&]:pt-2'
 // Raised over the transcript, opaque even when the chat's message-box surface is translucent.
@@ -44,8 +47,10 @@ export function WorkerDockPill({
       return
     }
     pane.style.setProperty('--native-chat-worker-pill-room', PILL_ROOM)
+    pane.style.setProperty(JUMP_LIFT, PILL_ROOM)
     return () => {
       pane.style.removeProperty('--native-chat-worker-pill-room')
+      pane.style.removeProperty(JUMP_LIFT)
     }
   }, [pill])
   const more = total - 1
@@ -56,11 +61,19 @@ export function WorkerDockPill({
       data-worker-dock-pill=""
       aria-expanded={expanded}
       aria-controls={expanded ? listId : undefined}
-      aria-label={t(
-        'components.native-chat.workerDock.pillLabel',
-        '{{count}} workers, latest: {{title}}',
-        { count: total, title, defaultValue_one: '{{count}} worker, latest: {{title}}' }
-      )}
+      aria-label={
+        total > 0
+          ? t(
+              'components.native-chat.workerDock.pillLabel',
+              '{{count}} workers, latest: {{title}}',
+              {
+                count: total,
+                title,
+                defaultValue_one: '{{count}} worker, latest: {{title}}'
+              }
+            )
+          : title
+      }
       className={cn(
         WORKER_DOCK_SURFACE_CLASS,
         'absolute inset-x-0 bottom-0 mx-auto flex h-7 w-fit max-w-[min(320px,calc(100%-40px))] items-center gap-1.5 rounded-[14px] pr-2.5 pl-2.5 text-xs shadow-sm hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
@@ -83,6 +96,9 @@ export function WorkerDockPill({
   )
 }
 
+const PORTALLED_LAYER =
+  '[role="dialog"],[role="alertdialog"],[data-radix-popper-content-wrapper],[data-sonner-toaster]'
+
 /** While the card is open, a press anywhere outside the pill and the card folds it, as Escape does. */
 export function useWorkerDockOutsidePress(
   root: RefObject<HTMLElement | null>,
@@ -95,11 +111,41 @@ export function useWorkerDockOutsidePress(
       return
     }
     const press = (event: PointerEvent) => {
-      if (event.target instanceof Node && !root.current?.contains(event.target)) {
+      const target = event.target
+      // A dialog, menu or toast a row opened is portalled out of the card but still belongs to it:
+      // folding under it would unmount the row it returns focus to.
+      if (
+        target instanceof Element &&
+        !root.current?.contains(target) &&
+        !target.closest(PORTALLED_LAYER)
+      ) {
         fold()
       }
     }
     document.addEventListener('pointerdown', press, true)
     return () => document.removeEventListener('pointerdown', press, true)
   }, [root, open, fold])
+}
+
+/** While the card is open, Jump to latest rides 8px above it instead of hiding behind it. */
+export function useWorkerDockJumpLift(card: RefObject<HTMLElement | null>, open: boolean): void {
+  useLayoutEffect(() => {
+    const element = card.current
+    const pane = element?.closest<HTMLElement>('[data-native-chat-root]')
+    if (!open || !element || !pane || typeof ResizeObserver === 'undefined') {
+      return
+    }
+    const lift = () =>
+      pane.style.setProperty(JUMP_LIFT, `calc(${PILL_ROOM} + ${element.offsetHeight + 8}px)`)
+    const observer = new ResizeObserver(lift)
+    observer.observe(element)
+    lift()
+    return () => {
+      observer.disconnect()
+      // Back over the pill, unless the pill already left and cleared both.
+      if (pane.style.getPropertyValue('--native-chat-worker-pill-room')) {
+        pane.style.setProperty(JUMP_LIFT, PILL_ROOM)
+      }
+    }
+  }, [card, open])
 }

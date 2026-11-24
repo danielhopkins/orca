@@ -15,10 +15,12 @@ import {
   type WorkerDockScrollAnchor
 } from './worker-dock-scroll-anchor'
 import { WorkerDockCardFooter } from './WorkerDockCardFooter'
+import { useWorkerDockCardFocus } from './use-worker-dock-card-focus'
 import {
   WORKER_DOCK_FLOAT_CLASS,
   WORKER_DOCK_SURFACE_CLASS,
   WorkerDockPill,
+  useWorkerDockJumpLift,
   useWorkerDockOutsidePress
 } from './WorkerDockPill'
 
@@ -40,6 +42,8 @@ export function WorkerDockRoster(props: {
   countIdentities?: readonly { id: string; state: WorkerDockRowView['state']; kind?: string }[]
   rows: ReadonlyMap<string, WorkerDockRowView>
   visible: boolean
+  /** Some running work is not listed: with no rows the pill still shows, so Stop all stays reachable. */
+  incomplete?: boolean
   stopAll?: { pending: boolean; onStop: () => void }
   expanded: boolean
   onExpandedChange: (value: boolean) => void
@@ -56,6 +60,7 @@ export function WorkerDockRoster(props: {
   const root = useRef<HTMLDivElement>(null)
   const viewport = useRef<HTMLDivElement>(null)
   const pill = useRef<HTMLButtonElement>(null)
+  const card = useRef<HTMLDivElement>(null)
   const anchor = useRef<WorkerDockScrollAnchor | null>(null)
   const sorted = useMemo(
     () =>
@@ -132,7 +137,8 @@ export function WorkerDockRoster(props: {
     setBudget(Math.max(ROW, Math.min(ROW * MAX_ROWS, room)))
   })
   useLayoutEffect(measure, [measure, props.expanded, items.length])
-  const shown = items.length > 0
+  const unlisted = items.length === 0 && Boolean(props.incomplete)
+  const shown = items.length > 0 || unlisted
   useEffect(() => {
     const pane = root.current?.closest('[data-native-chat-root]')
     if (!pane || !props.expanded || typeof ResizeObserver === 'undefined') {
@@ -150,25 +156,53 @@ export function WorkerDockRoster(props: {
     }
   })
   useWorkerDockOutsidePress(root, props.expanded, () => close(false))
+  useWorkerDockJumpLift(card, props.expanded)
   const top = sorted[0]
   const topRow = top ? props.rows.get(top.id) : undefined
   // The pill names a worker the host has not sent yet; ask for the window around it.
+  // Each anchor is asked for once per roster change, so a row the host never sends cannot loop.
+  const requested = useRef(new Set<string>())
+  useEffect(() => {
+    requested.current.clear()
+  }, [props.identities])
+  const { loadWindow: loadHostWindow } = props
+  const loadWindow = useCallback(
+    (anchorId: string) => {
+      if (!requested.current.has(anchorId)) {
+        requested.current.add(anchorId)
+        void loadHostWindow?.(anchorId)
+      }
+    },
+    [loadHostWindow]
+  )
   const missingTop = top && !topRow ? top.id : null
-  const { loadWindow } = props
   useEffect(() => {
     if (missingTop) {
-      void loadWindow?.(missingTop)
+      loadWindow(missingTop)
     }
   }, [missingTop, loadWindow])
+  // Ask for the details of the first row in view that has none. Not the first drawn row: a focused
+  // row stays drawn after End, and the card's order (needs-you first) is not the host's.
   const loadVisibleWindow = useLatestHandler(() => {
-    const first = visibleItems.find((item) => item.end > (viewport.current?.scrollTop ?? 0))
-    const key = first ? items[first.index]?.id : undefined
-    if (key && !props.rows.has(key)) {
-      void props.loadWindow?.(key)
+    const element = viewport.current
+    if (!element || !props.expanded) {
+      return
+    }
+    const top = element.scrollTop
+    const bottom = top + element.clientHeight
+    const missing = visibleItems.find(
+      (item) =>
+        item.end > top &&
+        item.start < bottom &&
+        items[item.index] &&
+        !props.rows.has(items[item.index].id)
+    )
+    if (missing) {
+      loadWindow(items[missing.index].id)
     }
   })
-  const firstVisibleKey = visibleItems[0]?.index
-  useEffect(loadVisibleWindow, [firstVisibleKey, props.rows, loadVisibleWindow])
+  const drawnKey = visibleItems.map((item) => item.index).join(',')
+  useEffect(loadVisibleWindow, [drawnKey, props.rows, props.expanded, loadVisibleWindow])
   const preserveAnchor = useLatestHandler(() => {
     if (!anchor.current || !viewport.current) {
       return
@@ -193,51 +227,15 @@ export function WorkerDockRoster(props: {
       setHeld(null)
     }
   }
-  const focusRow = (index: number) => {
-    const target = items[Math.max(0, Math.min(index, items.length - 1))]
-    if (!target) {
-      return
-    }
-    hold()
-    const focusTarget = () =>
-      viewport.current
-        ?.querySelector<HTMLElement>(
-          `[data-worker-dock-row="${CSS.escape(target.id)}"] [data-worker-dock-open]`
-        )
-        ?.focus()
-    if (!small) {
-      virtual.scrollToIndex(items.indexOf(target), { align: 'auto' })
-      requestAnimationFrame(focusTarget)
-    } else {
-      focusTarget()
-    }
-  }
-  // A row that leaves while it holds focus (Clear, say) hands focus to the row that takes its
-  // place, to the pill, or to the message box once the pill is gone, never to the page.
-  const lastFocus = useRef<{ id: string; index: number; pane: Element | null } | null>(null)
-  useLayoutEffect(() => {
-    const saved = lastFocus.current
-    if (!saved || items.some((row) => row.id === saved.id)) {
-      return
-    }
-    lastFocus.current = null
-    const focusedNow = document.activeElement
-    if (focusedNow && focusedNow !== document.body) {
-      return
-    }
-    const next = items[Math.min(saved.index, items.length - 1)]
-    const target = next
-      ? viewport.current?.querySelector<HTMLElement>(
-          `[data-worker-dock-row="${CSS.escape(next.id)}"] [data-worker-dock-open]`
-        )
-      : null
-    ;(
-      target ??
-      pill.current ??
-      saved.pane?.querySelector<HTMLElement>('[data-native-chat-composer-scope] textarea')
-    )?.focus()
-  }, [items])
-  if (!shown || !top) {
+  const { focusRow, lastFocus } = useWorkerDockCardFocus({
+    items,
+    small,
+    virtual,
+    viewport,
+    pill,
+    hold
+  })
+  if (!shown) {
     return null
   }
   return (
@@ -256,6 +254,7 @@ export function WorkerDockRoster(props: {
     >
       {props.expanded ? (
         <div
+          ref={card}
           data-worker-dock-card=""
           className={cn(
             WORKER_DOCK_SURFACE_CLASS,
@@ -310,6 +309,7 @@ export function WorkerDockRoster(props: {
                   items
                 ) ?? anchor.current
               hold()
+              loadVisibleWindow()
             }}
             onKeyDown={(event) => {
               const row =
@@ -348,24 +348,28 @@ export function WorkerDockRoster(props: {
                       transform: small ? undefined : `translateY(${item.start}px)`
                     }}
                   >
-                    {row ? (
-                      <WorkerDockRow
-                        row={row}
-                        mixed={mixed}
-                        visible={props.visible}
-                        pending={props.pending.has(row.id)}
-                        onOpen={onOpen}
-                        onAction={onAction}
-                      />
-                    ) : (
-                      <div className="flex h-[30px] items-center px-2 text-xs text-muted-foreground">
-                        {t('components.native-chat.workerDock.loadingWorker', 'Loading worker…')}
-                      </div>
-                    )}
+                    {/* One component either way, so focus on a loading row survives its details arriving. */}
+                    <WorkerDockRow
+                      id={identity.id}
+                      row={row}
+                      mixed={mixed}
+                      visible={props.visible}
+                      pending={row ? props.pending.has(row.id) : false}
+                      onOpen={onOpen}
+                      onAction={onAction}
+                    />
                   </div>
                 )
               })}
             </div>
+            {unlisted ? (
+              <p className="flex h-[30px] items-center px-2 text-xs text-muted-foreground">
+                {t(
+                  'components.native-chat.workerDock.unlistedDetail',
+                  'Some background work isn’t listed here'
+                )}
+              </p>
+            ) : null}
           </div>
           <WorkerDockCardFooter
             stopAll={props.stopAll}
@@ -380,8 +384,14 @@ export function WorkerDockRoster(props: {
       ) : null}
       <WorkerDockPill
         pill={pill}
-        glyph={workerDockGlyph({ ...top, retired: topRow?.retired })}
-        title={topRow ? workerDockRowTitle(topRow) : count}
+        glyph={top ? workerDockGlyph({ ...top, retired: topRow?.retired }) : 'running'}
+        title={
+          topRow
+            ? workerDockRowTitle(topRow)
+            : top
+              ? count
+              : t('components.native-chat.workerDock.unlisted', 'Background work running')
+        }
         total={total}
         expanded={props.expanded}
         listId={id}

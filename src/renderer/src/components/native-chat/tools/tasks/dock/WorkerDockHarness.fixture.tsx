@@ -10,6 +10,7 @@ import { defineFixture } from '../../../../../component-fixtures/component-fixtu
 import { workerDockFixturePane } from './worker-dock-pane-fixture'
 import { NativeChatBackgroundTasksStatus } from '../NativeChatBackgroundTasksStatus'
 import type { WorkerDockRowView } from './WorkerDockRow'
+import { WorkerDockProviderDetailsDialog } from './WorkerDockProviderDetailsDialog'
 
 // A live strip for the rendered interaction suite (tests/tools/worker-dock-rendered): it keeps its
 // own open state and answers Stop, Clear and Clear all the way the host does, a moment later.
@@ -72,10 +73,13 @@ function worker(index: number, state: WorkerDockRowView['state'], remote: boolea
 const LONG_TITLE =
   'Fix-forward: bind the listing to the resolver so a renamed branch keeps its open pull request and review comments'
 
-type Seed = { ask?: boolean; variety?: boolean; long?: boolean }
+type Seed = { ask?: boolean; variety?: boolean; long?: boolean; reorder?: boolean }
 function seed(count: number, failed: number, remote: boolean, options: Seed): WorkerDockRowView[] {
   return Array.from({ length: count }, (_, index) => {
-    const row = worker(index, index < failed ? 'failed' : 'running', remote)
+    // Reorder: the host lists newer queued workers first; the card puts the two older running first.
+    const state =
+      index < failed ? 'failed' : options.reorder && index < count - 2 ? 'coordinator' : 'running'
+    const row = worker(index, state, remote)
     const title = options.long && index % 2 === 0 ? `${LONG_TITLE} (${index + 1})` : row.title
     // The newest running worker asks a question: it outranks the failures in the pill and card.
     if (options.ask && index === failed) {
@@ -104,6 +108,9 @@ function Harness({
   open = false,
   command = false,
   stopAll = false,
+  incomplete = false,
+  lazy = 0,
+  details = false,
   ...options
 }: {
   count: number
@@ -112,8 +119,25 @@ function Harness({
   open?: boolean
   command?: boolean
   stopAll?: boolean
+  /** Running work the provider does not list (the strip then has no rows of its own). */
+  incomplete?: boolean
+  /** Details arrive late: only the first `lazy` rows (host order) have them; a window loads 300ms
+   *  after it is asked. */
+  lazy?: number
+  /** Opening a command shows its details dialog, as a chat does. */
+  details?: boolean
 } & Seed) {
   const [rows, setRows] = useState(() => seed(count, failed, remote, options))
+  const [detailed, setDetailed] = useState(() => new Set(rows.slice(0, lazy).map((row) => row.id)))
+  const [shown, setShown] = useState<{ row: WorkerDockRowView; opener: HTMLElement } | null>(null)
+  const loadWindow = async (anchor: string) => {
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    const at = rows.findIndex((row) => row.id === anchor)
+    setDetailed(
+      (current) =>
+        new Set([...current, ...rows.slice(Math.max(0, at - 10), at + 20).map((row) => row.id)])
+    )
+  }
   const [tasks, setTasks] = useState<AgentSessionBackgroundTask[]>(() =>
     command
       ? [{ id: 'shell-fixture', kind: 'command', description: 'Check the build', state: 'working' }]
@@ -184,32 +208,48 @@ function Harness({
     record({ action: 'open', id: row.id })
   )
   return (
-    <NativeChatBackgroundTasksStatus
-      sessionId={SOURCE}
-      tasks={tasks}
-      settledTasks={[]}
-      supportsTaskStop
-      offersStopAll={stopAll}
-      stoppingTaskIds={owner.pending}
-      stoppingAll={false}
-      indicatorActive
-      isVisible
-      expanded={expanded}
-      onExpandedChange={setExpanded}
-      onStop={(id) => {
-        if (id) {
-          record({ action: 'remote-stop', id })
-          setTasks((current) => current.filter((task) => task.id !== id))
-        } else {
-          record({ action: 'stop-all', id: '' })
+    <>
+      <NativeChatBackgroundTasksStatus
+        sessionId={SOURCE}
+        tasks={tasks}
+        settledTasks={[]}
+        supportsTaskStop
+        offersStopAll={stopAll}
+        incomplete={incomplete}
+        stoppingTaskIds={owner.pending}
+        stoppingAll={false}
+        indicatorActive
+        isVisible
+        expanded={expanded}
+        onExpandedChange={setExpanded}
+        onStop={(id) => {
+          if (id) {
+            record({ action: 'remote-stop', id })
+            setTasks((current) => current.filter((task) => task.id !== id))
+          } else {
+            record({ action: 'stop-all', id: '' })
+          }
+        }}
+        workerRows={
+          new Map(rows.filter((row) => !lazy || detailed.has(row.id)).map((row) => [row.id, row]))
         }
-      }}
-      workerRows={new Map(rows.map((row) => [row.id, row]))}
-      workerIdentities={identities}
-      onOpenWorker={owner.open}
-      onWorkerAction={owner.action}
-      onClearAll={owner.clearAll}
-    />
+        loadWindow={lazy ? loadWindow : undefined}
+        onShowProviderDetails={details ? (row, opener) => setShown({ row, opener }) : undefined}
+        workerIdentities={identities}
+        onOpenWorker={owner.open}
+        onWorkerAction={owner.action}
+        onClearAll={owner.clearAll}
+      />
+      {shown ? (
+        <WorkerDockProviderDetailsDialog
+          row={shown.row}
+          opener={shown.opener}
+          sessionId={SOURCE}
+          target={LOCAL}
+          onClose={() => setShown(null)}
+        />
+      ) : null}
+    </>
   )
 }
 
@@ -228,6 +268,34 @@ export const twentyOpen390 = defineFixture({
 export const twentyOpen320 = defineFixture({
   width: 320,
   render: () => workerDockFixturePane(<Harness count={20} failed={3} open />)
+})
+// Monitoring reports work it does not list and no worker rows: the pill still offers Stop all.
+export const unlistedOpen720 = defineFixture({
+  width: 720,
+  render: () => workerDockFixturePane(<Harness count={0} failed={0} incomplete stopAll open />)
+})
+// 100 workers whose details arrive late, so far rows draw as loading first.
+export const lazyHundredOpen720 = defineFixture({
+  width: 720,
+  render: () => workerDockFixturePane(<Harness count={100} failed={0} lazy={50} open />)
+})
+// The host's first 50 are newer queued workers; the two older running ones lead the card unloaded.
+export const reorderOpen720 = defineFixture({
+  width: 720,
+  render: () => workerDockFixturePane(<Harness count={51} failed={0} reorder lazy={50} open />)
+})
+// Two chat panes side by side, each with a command whose details open in a dialog.
+export const twoPanesCommand720 = defineFixture({
+  width: 720,
+  render: () => (
+    <div className="flex gap-2">
+      {[0, 1].map((pane) => (
+        <div key={pane} data-fixture-pane={pane} className="min-w-0 flex-1">
+          {workerDockFixturePane(<Harness count={2} failed={0} command details open />)}
+        </div>
+      ))}
+    </div>
+  )
 })
 export const oneFolded720 = defineFixture({
   width: 720,

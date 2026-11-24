@@ -1,11 +1,21 @@
 import { useTranslate } from '@/i18n/use-translate'
-import { lazy, Suspense, useCallback, useContext, useMemo, useState } from 'react'
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useContext,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState
+} from 'react'
 import type { RuntimeClientTarget } from '../../../../../../shared/remote-runtime/host-catalog/runtime-client-target'
 import { useNativeChatPinnedWorkerApprovals } from '../../worker-approvals/native-chat-worker-approval-feed'
 import { useWorkerDockFeed } from './dock/worker-dock-feed'
 import type { WorkerDockRowView } from './dock/WorkerDockRow'
 import { openOrchestrationCrewAgent } from '@/lib/agent-session/open/open-agent-message-sender'
 import { useWorkerDockOwnerActions } from './dock/use-worker-dock-owner-actions'
+import { returnWorkerDockFocus, workerDockOpenerPane } from './dock/worker-dock-focus-return'
 import { useLatestHandler } from '@/lib/use-latest-handler'
 import { Button } from '@/components/ui/button'
 import { NativeChatBackgroundTasksStatus } from './NativeChatBackgroundTasksStatus'
@@ -68,7 +78,8 @@ export function NativeChatStructuredSessionStatus(props: {
     target,
     props.sessionId,
     props.isVisible,
-    backgroundTasks.workerDock
+    backgroundTasks.workerDock,
+    expandedHere
   )
   const approvals = useNativeChatPinnedWorkerApprovals(target, feed.party)
   const openApprovals = useMemo(
@@ -171,6 +182,14 @@ export function NativeChatStructuredSessionStatus(props: {
     stopAvailable
   )
   const { dialog, failure } = owner
+  // Read while the opener is on screen: the dialog may outlive its row.
+  const dialogPane = useRef<Element | null>(null)
+  const dialogOpener = dialog?.opener
+  useLayoutEffect(() => {
+    if (dialogOpener) {
+      dialogPane.current = workerDockOpenerPane(dialogOpener)
+    }
+  }, [dialogOpener])
   if (crew) {
     // The suspended crew panel's strip keeps main's own view while it is enabled.
     return (
@@ -207,6 +226,7 @@ export function NativeChatStructuredSessionStatus(props: {
         onWorkerAction={owner.action}
         onClearAll={owner.clearAll}
         loadWindow={feed.loadWindow}
+        incomplete={backgroundTasks.incomplete || !feed.available}
         tasks={backgroundTasks.tasks}
         settledTasks={backgroundTasks.settledTasks}
         {...(backgroundTasks.children
@@ -261,15 +281,7 @@ export function NativeChatStructuredSessionStatus(props: {
             onClose={() => {
               const { opener } = dialog
               owner.close()
-              if (opener.isConnected) {
-                opener.focus()
-              } else {
-                document
-                  .querySelector<HTMLButtonElement>(
-                    '[data-native-chat-background-tasks] button[aria-expanded]'
-                  )
-                  ?.focus()
-              }
+              returnWorkerDockFocus(opener, dialogPane.current)
             }}
             onOpen={() => workerOpen(dialog.row)}
             onRestore={owner.restore}

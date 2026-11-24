@@ -1,7 +1,18 @@
 // Rendered interaction checks for the worker pill and card, in headless Chromium with real layout.
 // Start the fixture server (`pnpm dev:fixtures -- --port 5600 --strictPort`), then run
 // `node tests/tools/worker-dock-rendered/run.mjs [baseUrl] [shotDir]`. Exits non-zero on a failure.
-import { createFixtureSession } from './fixture-session.mjs'
+import {
+  card,
+  createFixtureSession,
+  events,
+  expanded,
+  focusedRow,
+  region,
+  rows,
+  scrollState,
+  toggle
+} from './fixture-session.mjs'
+import { runLoadingAndLayerChecks } from './loading-and-layer-checks.mjs'
 import { mkdirSync } from 'node:fs'
 import path from 'node:path'
 
@@ -16,31 +27,6 @@ const { browser, results, warmPage, open, check, assert, scene } = await createF
   fixture: FIXTURE
 })
 
-const toggle = (page) => page.locator('[data-worker-dock-pill]')
-const card = (page) => page.locator('[data-worker-dock-card]')
-const region = (page) => page.locator('[data-worker-dock-card] [role="region"]')
-const rows = (page) =>
-  page.evaluate(() =>
-    [...document.querySelectorAll('[data-worker-dock-row]')].map((row) => ({
-      id: row.getAttribute('data-worker-dock-row'),
-      state: row.getAttribute('data-worker-dock-state') ?? ''
-    }))
-  )
-const scrollState = (page) =>
-  region(page).evaluate((element) => ({
-    top: element.scrollTop,
-    height: element.scrollHeight,
-    client: element.clientHeight
-  }))
-const events = (page) => page.evaluate(() => window.__workerDockHarness?.events ?? [])
-const expanded = async (page) => (await toggle(page).getAttribute('aria-expanded')) === 'true'
-const focusedRow = (page) =>
-  page.evaluate(
-    () =>
-      document.activeElement
-        ?.closest('[data-worker-dock-row]')
-        ?.getAttribute('data-worker-dock-row') ?? null
-  )
 const shot = async (page, name) => {
   if (shots) {
     mkdirSync(shots, { recursive: true })
@@ -468,6 +454,8 @@ await check('Show in dock again restores the acknowledged failure', () =>
     )
   })
 )
+
+await runLoadingAndLayerChecks({ check, scene, assert })
 
 await check('Jump to latest stacks 8px above the pill and never overlaps it', () =>
   scene('jumpFolded720', {}, async (page) => {
