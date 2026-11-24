@@ -1,7 +1,7 @@
-// The open item's top: number and title, when and where it was made, its status (and snooze) and its links. It
-// stays at the top of the item's scroll the whole time (CSS sticky, nothing read on scroll), so the
-// links are in view while the owner reads the activity or answers a question below.
+// The open item's top: number and title (and snooze). It stays at the top of the item's scroll the whole
+// time (CSS sticky, nothing read on scroll); its status menu sits at the right of the back row above it.
 import { useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { AlarmClock, Check, ChevronDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -23,99 +23,85 @@ import {
   type BotItem,
   type BotItemStatus
 } from '../../../../../shared/bots/bot-items'
-import { BotItemLinkChips } from './BotItemLinkChips'
 import { BotItemStatusIcon } from './BotItemStatusIcon'
 import { BotItemSnoozeMenuItems, type BotItemSnoozing } from './BotItemSnooze'
 import { formatBotItemSnoozeTime } from './bot-item-snooze-time'
 import { botItemPickName, botItemStatusName } from './bot-item-status-name'
 import { botHostTakes } from '../bot-host-capability'
 import { BOTS_ITEM_WAITING_CAPABILITY } from '../../../../../shared/bot-runtime-capabilities'
-import { NativeChatMessageTimestamp } from '../../native-chat/messages/rows/NativeChatMessageTimestamp'
 
 export function BotItemHeader({
   bot,
   item,
-  chatTitle,
   deleted,
   onStatus,
   snoozing,
-  scrollRef
+  scrollRef,
+  statusSlot
 }: {
   bot: Bot
   item: BotItem
-  chatTitle: string
   /** Gone from the host: its status can no longer change. */
   deleted: boolean
   onStatus: (to: BotItemStatus) => void
   snoozing: BotItemSnoozing
   /** The item's scroller: a control Tab reaches is scrolled clear of this header, not under it. */
   scrollRef: React.RefObject<HTMLDivElement | null>
+  /** The back row's right end: the status menu goes there; without one it gets a row of its own. */
+  statusSlot?: HTMLElement | null
 }): React.JSX.Element {
   const t = useTranslate()
   const header = useRef<HTMLDivElement | null>(null)
   useScrollPaddingBelow(scrollRef, header)
   const now = useNow(60_000)
   const snoozed = isBotItemSnoozed(item, now)
+  const status = (
+    <StatusMenu
+      item={item}
+      waiting={botHostTakes(bot, BOTS_ITEM_WAITING_CAPABILITY)}
+      disabled={deleted}
+      onStatus={onStatus}
+      snoozing={snoozing}
+    />
+  )
   return (
     <div
       ref={header}
-      className="sticky top-0 z-10 flex shrink-0 flex-col gap-1.5 border-b border-border/60 bg-sidebar px-3.5 pt-1 pb-2"
+      className="sticky top-0 z-10 flex shrink-0 flex-col gap-1.5 border-b border-border/60 bg-sidebar px-3.5 pt-1 pb-3"
     >
-      <div>
-        <h2
-          title={item.title}
-          className="line-clamp-2 break-words text-[15px] font-semibold leading-[21px] text-foreground [@media(max-height:620px)]:line-clamp-1"
-        >
-          <span className="font-normal tabular-nums text-muted-foreground">
-            {formatBotItemNumber(item.number)}
-          </span>{' '}
-          {item.title}
-        </h2>
-        <div className="flex min-w-0 items-center gap-2">
-          <StatusMenu
-            item={item}
-            waiting={botHostTakes(bot, BOTS_ITEM_WAITING_CAPABILITY)}
+      {statusSlot ? (
+        createPortal(status, statusSlot)
+      ) : statusSlot === undefined ? (
+        <div className="-mr-2 flex justify-end">{status}</div>
+      ) : null}
+      <h2
+        title={item.title}
+        className="line-clamp-2 break-words text-[15px] font-semibold leading-[21px] text-foreground [@media(max-height:620px)]:line-clamp-1"
+      >
+        <span className="font-normal tabular-nums text-muted-foreground">
+          {formatBotItemNumber(item.number)}
+        </span>{' '}
+        {item.title}
+      </h2>
+      {snoozed && item.snoozedUntil !== null ? (
+        <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+          <AlarmClock className="size-3 shrink-0" />
+          <span className="min-w-0 truncate">
+            {t('bots.items.snooze.until', 'Snoozed until {{when}}', {
+              when: formatBotItemSnoozeTime(item.snoozedUntil, now)
+            })}
+          </span>
+          <Button
+            variant="outline"
+            size="xs"
+            className="ml-auto h-[22px]"
             disabled={deleted}
-            onStatus={onStatus}
-            snoozing={snoozing}
-          />
-          {/* The date stays whole; the chat title truncates, and a narrow pane drops it (the title's
-              number and the Chat row already say both). */}
-          <p className="flex min-w-0 gap-1 text-xs text-muted-foreground">
-            <span className="min-w-0 truncate @max-[360px]:hidden">
-              {t('bots.items.view.subWhere', 'Item {{number}} · {{chat}}', {
-                number: item.number,
-                chat: chatTitle
-              })}
-              {Number.isNaN(new Date(item.createdAt).getTime()) ? null : ' ·'}
-            </span>
-            <NativeChatMessageTimestamp
-              timestamp={item.createdAt}
-              className="shrink-0 text-muted-foreground"
-            />
-          </p>
+            onClick={() => snoozing.snooze([item], null)}
+          >
+            {t('bots.items.snooze.unsnooze', 'Unsnooze')}
+          </Button>
         </div>
-        {snoozed && item.snoozedUntil !== null ? (
-          <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-            <AlarmClock className="size-3 shrink-0" />
-            <span className="min-w-0 truncate">
-              {t('bots.items.snooze.until', 'Snoozed until {{when}}', {
-                when: formatBotItemSnoozeTime(item.snoozedUntil, now)
-              })}
-            </span>
-            <Button
-              variant="outline"
-              size="xs"
-              className="ml-auto h-[22px]"
-              disabled={deleted}
-              onClick={() => snoozing.snooze([item], null)}
-            >
-              {t('bots.items.snooze.unsnooze', 'Unsnooze')}
-            </Button>
-          </div>
-        ) : null}
-      </div>
-      <BotItemLinkChips bot={bot} links={item.links} chat={chatTitle} />
+      ) : null}
     </div>
   )
 }
@@ -164,13 +150,13 @@ function StatusMenu({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="xs" className="-ml-1.5 shrink-0" disabled={disabled}>
+        <Button variant="ghost" size="xs" className="shrink-0" disabled={disabled}>
           <BotItemStatusIcon status={item.status} live={isBotItemLive(item)} />
           {botItemStatusName(item.status, t)}
           <ChevronDown className="size-3 text-muted-foreground" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start">
+      <DropdownMenuContent align="end">
         {botItemPickerStatuses(waiting).map((status) => (
           <DropdownMenuItem
             key={status}

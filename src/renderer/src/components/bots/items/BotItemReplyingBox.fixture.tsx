@@ -106,9 +106,10 @@ function Pane({
   return (
     <div className="flex flex-col bg-sidebar" style={{ width, height }}>
       <BotItemPaneFrame walk={walk()} offline={false} onBack={() => {}} owner={bot}>
-        {({ comment, nav }) => (
+        {({ comment, statusSlot, nav }) => (
           <BotItemBody
             commentRef={comment}
+            statusSlot={statusSlot}
             nav={nav}
             bot={bot}
             item={item}

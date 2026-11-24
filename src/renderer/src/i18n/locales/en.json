@@ -30180,7 +30180,8 @@
         "description": "description",
         "doneMeans": "Done means",
         "doneMeansLower": "done means",
-        "title": "title"
+        "title": "title",
+        "doneWhen": "Done when"
       },
       "filter": {
         "chat": "Chat",
@@ -30206,7 +30207,11 @@
         "serverPr": "PR not shown for server work yet",
         "automation": "Automation",
         "automationOn": "Will wake the agent for this item",
-        "automationEnded": "Ended"
+        "automationEnded": "Ended",
+        "running": "Running",
+        "done": "Done",
+        "failed": "Failed",
+        "stopped": "Stopped"
       },
       "menu": {
         "cancel": "Cancel",
@@ -30261,7 +30266,9 @@
         "lastItem": "Last item",
         "deleted": "This item was deleted.",
         "moreLinks": "{{count}} more links",
-        "loading": "Loading item…"
+        "loading": "Loading item…",
+        "moreCount": "{{count}} more",
+        "fromChat": "From {{chat}}"
       },
       "loading": "Loading items…",
       "readFailed": "Couldn't read items.",

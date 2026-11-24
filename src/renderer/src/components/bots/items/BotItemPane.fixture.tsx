@@ -55,9 +55,10 @@ function Pane({
   return (
     <div className={tall ? 'flex h-[860px] flex-col' : 'flex h-[420px] flex-col'}>
       <BotItemPaneFrame walk={state} offline={offline} onBack={() => {}}>
-        {({ comment, nav }) => (
+        {({ comment, statusSlot, nav }) => (
           <BotItemBody
             commentRef={comment}
+            statusSlot={statusSlot}
             nav={nav}
             bot={fixtureCos}
             item={shown}
