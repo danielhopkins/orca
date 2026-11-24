@@ -227,7 +227,7 @@ export function WorkerDockRoster(props: {
       setHeld(null)
     }
   }
-  const { focusRow, lastFocus } = useWorkerDockCardFocus({
+  const { focusRow, rememberFocus, forgetFocus } = useWorkerDockCardFocus({
     items,
     small,
     virtual,
@@ -271,20 +271,16 @@ export function WorkerDockRoster(props: {
             if (row) {
               const rowId = row.dataset.workerDockRow ?? null
               setFocused(rowId)
-              lastFocus.current = rowId
-                ? {
-                    id: rowId,
-                    index: items.findIndex((item) => item.id === rowId),
-                    pane: row.closest('[data-native-chat-root]')
-                  }
-                : lastFocus.current
+              if (rowId) {
+                rememberFocus(rowId, row.closest('[data-native-chat-root]'))
+              }
               row.scrollIntoView({ block: 'nearest' })
             }
           }}
           onBlurCapture={() =>
             queueMicrotask(() => {
               if (!root.current?.contains(document.activeElement)) {
-                lastFocus.current = null
+                forgetFocus()
               }
               setFocused(
                 document.activeElement?.closest<HTMLElement>('[data-worker-dock-row]')?.dataset

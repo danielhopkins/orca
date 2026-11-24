@@ -36,13 +36,12 @@ export function useWorkerDockCardFocus({
     }
     virtual.scrollToIndex(items.indexOf(target), { align: 'auto' })
     // A far row is drawn only once the scroll lands, a frame or a few later: keep trying until it is.
-    let tries = 0
-    const attempt = () => {
-      if (!focusTarget() && ++tries < 10) {
-        requestAnimationFrame(attempt)
+    const attempt = (left: number) => {
+      if (!focusTarget() && left > 0) {
+        requestAnimationFrame(() => attempt(left - 1))
       }
     }
-    requestAnimationFrame(attempt)
+    requestAnimationFrame(() => attempt(10))
   }
   // A row that leaves while it holds focus (Clear, say) hands focus to the row that takes its
   // place, to the pill, or to the message box once the pill is gone, never to the page.
@@ -69,5 +68,13 @@ export function useWorkerDockCardFocus({
       saved.pane?.querySelector<HTMLElement>('[data-native-chat-composer-scope] textarea')
     )?.focus()
   }, [items, viewport, pill])
-  return { focusRow, lastFocus }
+  return {
+    focusRow,
+    rememberFocus: (id: string, pane: Element | null) => {
+      lastFocus.current = { id, index: items.findIndex((item) => item.id === id), pane }
+    },
+    forgetFocus: () => {
+      lastFocus.current = null
+    }
+  }
 }
