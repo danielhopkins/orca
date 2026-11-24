@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, type RefObject } from 'react'
 import type { Virtualizer } from '@tanstack/react-virtual'
+import { focusWorkerDockPaneEditor } from './worker-dock-focus-return'
 
 /** Moves focus between the card's rows, and hands it on when the focused row leaves. */
 export function useWorkerDockCardFocus({
@@ -82,12 +83,34 @@ export function useWorkerDockCardFocus({
           `[data-worker-dock-row="${CSS.escape(next.id)}"] [data-worker-dock-open]`
         )
       : null
-    ;(
-      target ??
-      pill.current ??
-      saved.pane?.querySelector<HTMLElement>('[data-native-chat-composer-scope] textarea')
-    )?.focus()
+    const landing = target ?? pill.current
+    if (landing) {
+      landing.focus()
+    } else {
+      focusWorkerDockPaneEditor(saved.pane)
+    }
   }, [items, viewport, pill])
+  // The whole card leaving (its chat's last work gone) while it held focus hands it to that
+  // pane's message box, unless the user already put focus somewhere on purpose.
+  useLayoutEffect(
+    () => () => {
+      const active = document.activeElement
+      const pane = (pill.current ?? viewport.current)?.closest('[data-native-chat-root]')
+      if (
+        !active ||
+        !pane ||
+        !(pill.current?.contains(active) || viewport.current?.contains(active))
+      ) {
+        return
+      }
+      queueMicrotask(() => {
+        if (!document.activeElement || document.activeElement === document.body) {
+          focusWorkerDockPaneEditor(pane)
+        }
+      })
+    },
+    [pill, viewport]
+  )
   return {
     focusRow,
     rememberFocus: (id: string, pane: Element | null) => {

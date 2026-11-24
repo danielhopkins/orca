@@ -140,6 +140,7 @@ export function workerDockFixturePane(
           <div className="rounded-xl border border-chat-composer-border bg-chat-composer-surface p-1.5 shadow-xs">
             <textarea
               data-fixture-composer=""
+              data-native-chat-prompt-editor="true"
               aria-label="Message"
               className="block min-h-12 w-full resize-none bg-transparent px-2 py-2 text-sm text-chat-foreground outline-none"
               defaultValue=""
