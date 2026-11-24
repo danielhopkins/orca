@@ -133,4 +133,92 @@ export async function runLoadingAndLayerChecks({ check, scene, assert }) {
         assert(atEnd, 'Jump to latest did not reach the end')
       })
   )
+
+  await check('focus the user moves elsewhere during End is not taken back', () =>
+    scene('lazyHundredOpen720', {}, async (page) => {
+      await page.locator('[data-worker-dock-open]').first().focus()
+      await page.keyboard.press('End')
+      await page.locator('[data-fixture-composer]').focus()
+      await page.waitForTimeout(800)
+      const where = await page.evaluate(() =>
+        document.activeElement?.hasAttribute('data-fixture-composer')
+      )
+      assert(where, 'a pending row focus took focus back from the message box')
+    })
+  )
+
+  await check('after failed detail reads, End again loads the last row and Enter opens it', () =>
+    scene('lazyFailingOpen720', {}, async (page) => {
+      await page.locator('[data-worker-dock-open]').first().focus()
+      await page.keyboard.press('End')
+      await focusedIs(page, 'dock:99')
+      await page.waitForTimeout(1200)
+      await page.keyboard.press('End')
+      await loaded(page, 'dock:99')
+      assert((await focusedRow(page)) === 'dock:99', 'focus left the last row')
+      await page.keyboard.press('Enter')
+      const opened = (await events(page)).filter((event) => event.action === 'open')
+      assert(opened.at(-1)?.id === 'dock:99', `Enter opened ${opened.at(-1)?.id}`)
+    })
+  )
+
+  for (const [how, removed] of [
+    ['Close', false],
+    ['Escape', false],
+    ['Close', true],
+    ['Escape', true]
+  ]) {
+    await check(
+      `a settled result closed by ${how}${removed ? ' after its row left' : ''} returns focus in its own pane`,
+      () =>
+        scene('twoPanesCommand720', { width: 760 }, async (page) => {
+          const pane = page.locator('[data-fixture-pane="1"]')
+          await pane.locator(`${rowOf('dock:0')} [data-worker-dock-open]`).click()
+          const dialog = page.getByRole('dialog')
+          await dialog.waitFor()
+          if (removed) {
+            await page.evaluate(() => window.__workerDockHarnesses[1].finish('dock:0'))
+            await pane.locator(rowOf('dock:0')).waitFor({ state: 'detached' })
+          }
+          await (how === 'Close'
+            ? dialog.getByRole('button', { name: 'Close' }).click()
+            : page.keyboard.press('Escape'))
+          await dialog.waitFor({ state: 'detached' })
+          await page.waitForTimeout(100)
+          const where = await page.evaluate(() => {
+            const active = document.activeElement
+            return {
+              pane: active?.closest('[data-fixture-pane]')?.getAttribute('data-fixture-pane'),
+              row: active?.closest('[data-worker-dock-row]')?.getAttribute('data-worker-dock-row'),
+              pill: active?.hasAttribute('data-worker-dock-pill') ?? false
+            }
+          })
+          const expected = removed ? where.pill : where.row === 'dock:0'
+          assert(where.pane === '1' && expected, `focus went to ${JSON.stringify(where)}`)
+        })
+    )
+  }
+
+  for (const [label, options] of [
+    ['normal height', {}],
+    ['a 340 x 250 pane', { width: 340, height: 250 }]
+  ]) {
+    await check(`a full click on Jump to latest over the open card jumps (${label})`, () =>
+      scene('jumpFolded720', options, async (page) => {
+        await toggle(page).click()
+        await card(page).waitFor()
+        await page.waitForTimeout(200)
+        const jump = page.getByRole('button', { name: 'Jump to latest' })
+        const box = await jump.boundingBox()
+        assert(box.y >= 0, `Jump to latest is off the pane at y=${box.y}`)
+        await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2)
+        await page.waitForTimeout(250)
+        const atEnd = await page.evaluate(() => {
+          const element = document.querySelector('[data-fixture-transcript]')
+          return element.scrollTop + element.clientHeight >= element.scrollHeight - 2
+        })
+        assert(atEnd, 'the click did not jump to the end')
+      })
+    )
+  }
 }

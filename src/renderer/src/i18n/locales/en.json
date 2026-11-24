@@ -22866,7 +22866,9 @@
         "pillLabel_one": "{{count}} worker, latest: {{title}}",
         "pillLabel_other": "{{count}} workers, latest: {{title}}",
         "unlistedDetail": "Some background work isn’t listed here",
-        "unlisted": "Background work running"
+        "unlisted": "Background work running",
+        "unread": "Workers couldn’t load",
+        "unreadDetail": "Workers will show here once they load"
       },
       "webhookSetup": {
         "heading": "Set up a webhook",

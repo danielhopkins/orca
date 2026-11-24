@@ -1,9 +1,11 @@
-import { useLayoutEffect, useRef, type RefObject } from 'react'
+import { useEffect, useLayoutEffect, useRef, type RefObject } from 'react'
 import type { Virtualizer } from '@tanstack/react-virtual'
 
 /** Moves focus between the card's rows, and hands it on when the focused row leaves. */
 export function useWorkerDockCardFocus({
   items,
+  rows,
+  loadRow,
   small,
   virtual,
   viewport,
@@ -11,18 +13,36 @@ export function useWorkerDockCardFocus({
   hold
 }: {
   items: readonly { id: string }[]
+  rows: ReadonlyMap<string, unknown>
+  loadRow: (id: string) => void
   small: boolean
   virtual: Virtualizer<HTMLDivElement, HTMLDivElement>
   viewport: RefObject<HTMLDivElement | null>
   pill: RefObject<HTMLButtonElement | null>
   hold: () => void
 }) {
+  const navigation = useRef(0)
+  useEffect(
+    () => () => {
+      navigation.current++
+    },
+    []
+  )
   const focusRow = (index: number) => {
     const target = items[Math.max(0, Math.min(index, items.length - 1))]
     if (!target) {
       return
     }
     hold()
+    if (!rows.has(target.id)) {
+      loadRow(target.id)
+    }
+    // A newer move, or focus the user put elsewhere meanwhile, cancels this one.
+    const token = ++navigation.current
+    const origin = document.activeElement
+    const current = () =>
+      token === navigation.current &&
+      (document.activeElement === origin || document.activeElement === document.body)
     const focusTarget = () => {
       const element = viewport.current?.querySelector<HTMLElement>(
         `[data-worker-dock-row="${CSS.escape(target.id)}"] [data-worker-dock-open]`
@@ -37,7 +57,7 @@ export function useWorkerDockCardFocus({
     virtual.scrollToIndex(items.indexOf(target), { align: 'auto' })
     // A far row is drawn only once the scroll lands, a frame or a few later: keep trying until it is.
     const attempt = (left: number) => {
-      if (!focusTarget() && left > 0) {
+      if (current() && !focusTarget() && left > 0) {
         requestAnimationFrame(() => attempt(left - 1))
       }
     }

@@ -96,8 +96,10 @@ export function WorkerDockPill({
   )
 }
 
-const PORTALLED_LAYER =
-  '[role="dialog"],[role="alertdialog"],[data-radix-popper-content-wrapper],[data-sonner-toaster]'
+// Jump to latest is stacked in the card's slot: pressing it must not fold the card and move it
+// out from under the pointer before the click lands.
+const KEEPS_CARD_OPEN =
+  '[role="dialog"],[role="alertdialog"],[data-radix-popper-content-wrapper],[data-sonner-toaster],[data-native-chat-jump-latest]'
 
 /** While the card is open, a press anywhere outside the pill and the card folds it, as Escape does. */
 export function useWorkerDockOutsidePress(
@@ -117,7 +119,7 @@ export function useWorkerDockOutsidePress(
       if (
         target instanceof Element &&
         !root.current?.contains(target) &&
-        !target.closest(PORTALLED_LAYER)
+        !target.closest(KEEPS_CARD_OPEN)
       ) {
         fold()
       }

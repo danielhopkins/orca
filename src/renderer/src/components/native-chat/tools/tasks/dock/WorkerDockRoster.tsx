@@ -7,6 +7,7 @@ import { WorkerDockRow, workerDockRowTitle, type WorkerDockRowView } from './Wor
 import { useLatestHandler } from '@/lib/use-latest-handler'
 import { cn } from '@/lib/class-names'
 import { workerDockSummary } from './worker-dock-summary'
+import { workerDockEmptyCopy } from './worker-dock-labels'
 import { compareWorkerDockCardRows, workerDockGlyph } from './worker-dock-card-order'
 import {
   workerDockAnchorIndex,
@@ -16,6 +17,7 @@ import {
 } from './worker-dock-scroll-anchor'
 import { WorkerDockCardFooter } from './WorkerDockCardFooter'
 import { useWorkerDockCardFocus } from './use-worker-dock-card-focus'
+import { useWorkerDockDetailReads } from './use-worker-dock-detail-reads'
 import {
   WORKER_DOCK_FLOAT_CLASS,
   WORKER_DOCK_SURFACE_CLASS,
@@ -34,6 +36,7 @@ type Identity = {
 
 const ROW = 30
 const MAX_ROWS = 6
+const JUMP_ROOM = 40
 
 /** The chat's open workers as one floating pill over the end of the transcript; pressing it opens
  *  a card of every worker above it. Nothing is drawn behind either, so the chat stays readable. */
@@ -44,6 +47,8 @@ export function WorkerDockRoster(props: {
   visible: boolean
   /** Some running work is not listed: with no rows the pill still shows, so Stop all stays reachable. */
   incomplete?: boolean
+  /** The worker read failed, so the rows (if any) cannot be trusted to be the whole roster. */
+  unavailable?: boolean
   stopAll?: { pending: boolean; onStop: () => void }
   expanded: boolean
   onExpandedChange: (value: boolean) => void
@@ -133,12 +138,16 @@ export function WorkerDockRoster(props: {
     if (!pane || pillTop === undefined) {
       return
     }
-    const room = pillTop - pane.top - 8 - 10 - 8 - (footer?.offsetHeight ?? 0)
+    // Above the card: its 8px gap and padding, then room for Jump to latest (32px + 8px) and 8px.
+    const room = pillTop - pane.top - 8 - 10 - (footer?.offsetHeight ?? 0) - JUMP_ROOM - 8
     setBudget(Math.max(ROW, Math.min(ROW * MAX_ROWS, room)))
   })
   useLayoutEffect(measure, [measure, props.expanded, items.length])
+  // With no rows, the pill says only what is known: the provider reports work it does not list,
+  // or the worker read failed (which claims nothing about whether anything runs).
   const unlisted = items.length === 0 && Boolean(props.incomplete)
-  const shown = items.length > 0 || unlisted
+  const unread = items.length === 0 && !unlisted && Boolean(props.unavailable)
+  const shown = items.length > 0 || unlisted || unread
   useEffect(() => {
     const pane = root.current?.closest('[data-native-chat-root]')
     if (!pane || !props.expanded || typeof ResizeObserver === 'undefined') {
@@ -160,21 +169,7 @@ export function WorkerDockRoster(props: {
   const top = sorted[0]
   const topRow = top ? props.rows.get(top.id) : undefined
   // The pill names a worker the host has not sent yet; ask for the window around it.
-  // Each anchor is asked for once per roster change, so a row the host never sends cannot loop.
-  const requested = useRef(new Set<string>())
-  useEffect(() => {
-    requested.current.clear()
-  }, [props.identities])
-  const { loadWindow: loadHostWindow } = props
-  const loadWindow = useCallback(
-    (anchorId: string) => {
-      if (!requested.current.has(anchorId)) {
-        requested.current.add(anchorId)
-        void loadHostWindow?.(anchorId)
-      }
-    },
-    [loadHostWindow]
-  )
+  const loadWindow = useWorkerDockDetailReads(props.identities, props.loadWindow)
   const missingTop = top && !topRow ? top.id : null
   useEffect(() => {
     if (missingTop) {
@@ -229,6 +224,8 @@ export function WorkerDockRoster(props: {
   }
   const { focusRow, rememberFocus, forgetFocus } = useWorkerDockCardFocus({
     items,
+    rows: props.rows,
+    loadRow: loadWindow,
     small,
     virtual,
     viewport,
@@ -358,12 +355,9 @@ export function WorkerDockRoster(props: {
                 )
               })}
             </div>
-            {unlisted ? (
+            {unlisted || unread ? (
               <p className="flex h-[30px] items-center px-2 text-xs text-muted-foreground">
-                {t(
-                  'components.native-chat.workerDock.unlistedDetail',
-                  'Some background work isn’t listed here'
-                )}
+                {workerDockEmptyCopy(t, unlisted).note}
               </p>
             ) : null}
           </div>
@@ -380,13 +374,15 @@ export function WorkerDockRoster(props: {
       ) : null}
       <WorkerDockPill
         pill={pill}
-        glyph={top ? workerDockGlyph({ ...top, retired: topRow?.retired }) : 'running'}
+        glyph={
+          top
+            ? workerDockGlyph({ ...top, retired: topRow?.retired })
+            : unlisted
+              ? 'running'
+              : 'queued'
+        }
         title={
-          topRow
-            ? workerDockRowTitle(topRow)
-            : top
-              ? count
-              : t('components.native-chat.workerDock.unlisted', 'Background work running')
+          topRow ? workerDockRowTitle(topRow) : top ? count : workerDockEmptyCopy(t, unlisted).title
         }
         total={total}
         expanded={props.expanded}

@@ -1,21 +1,12 @@
 import { useTranslate } from '@/i18n/use-translate'
-import {
-  lazy,
-  Suspense,
-  useCallback,
-  useContext,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState
-} from 'react'
+import { lazy, Suspense, useCallback, useContext, useMemo, useState } from 'react'
 import type { RuntimeClientTarget } from '../../../../../../shared/remote-runtime/host-catalog/runtime-client-target'
 import { useNativeChatPinnedWorkerApprovals } from '../../worker-approvals/native-chat-worker-approval-feed'
 import { useWorkerDockFeed } from './dock/worker-dock-feed'
 import type { WorkerDockRowView } from './dock/WorkerDockRow'
 import { openOrchestrationCrewAgent } from '@/lib/agent-session/open/open-agent-message-sender'
 import { useWorkerDockOwnerActions } from './dock/use-worker-dock-owner-actions'
-import { returnWorkerDockFocus, workerDockOpenerPane } from './dock/worker-dock-focus-return'
+import { WorkerDockResultDialogSlot } from './dock/WorkerDockResultDialogSlot'
 import { useLatestHandler } from '@/lib/use-latest-handler'
 import { Button } from '@/components/ui/button'
 import { NativeChatBackgroundTasksStatus } from './NativeChatBackgroundTasksStatus'
@@ -29,11 +20,6 @@ import {
   useNativeChatCrew
 } from '../../../orchestration-crew/use-native-chat-crew'
 
-const WorkerDockResultDialog = lazy(() =>
-  import('./dock/WorkerDockResultDialog').then((module) => ({
-    default: module.WorkerDockResultDialog
-  }))
-)
 const WorkerDockProviderDetailsDialog = lazy(() =>
   import('./dock/WorkerDockProviderDetailsDialog').then((module) => ({
     default: module.WorkerDockProviderDetailsDialog
@@ -182,14 +168,6 @@ export function NativeChatStructuredSessionStatus(props: {
     stopAvailable
   )
   const { dialog, failure } = owner
-  // Read while the opener is on screen: the dialog may outlive its row.
-  const dialogPane = useRef<Element | null>(null)
-  const dialogOpener = dialog?.opener
-  useLayoutEffect(() => {
-    if (dialogOpener) {
-      dialogPane.current = workerDockOpenerPane(dialogOpener)
-    }
-  }, [dialogOpener])
   if (crew) {
     // The suspended crew panel's strip keeps main's own view while it is enabled.
     return (
@@ -226,7 +204,8 @@ export function NativeChatStructuredSessionStatus(props: {
         onWorkerAction={owner.action}
         onClearAll={owner.clearAll}
         loadWindow={feed.loadWindow}
-        incomplete={backgroundTasks.incomplete || !feed.available}
+        incomplete={backgroundTasks.incomplete}
+        unavailable={!feed.available}
         tasks={backgroundTasks.tasks}
         settledTasks={backgroundTasks.settledTasks}
         {...(backgroundTasks.children
@@ -270,24 +249,13 @@ export function NativeChatStructuredSessionStatus(props: {
           </Button>
         </div>
       ) : null}
-      {dialog ? (
-        <Suspense fallback={null}>
-          <WorkerDockResultDialog
-            ownerActionsAvailable={
-              ownerActionsAvailable && dialog.result?.ownerActionsAvailable !== false
-            }
-            result={dialog.result}
-            error={dialog.error}
-            onClose={() => {
-              const { opener } = dialog
-              owner.close()
-              returnWorkerDockFocus(opener, dialogPane.current)
-            }}
-            onOpen={() => workerOpen(dialog.row)}
-            onRestore={owner.restore}
-          />
-        </Suspense>
-      ) : null}
+      <WorkerDockResultDialogSlot
+        dialog={dialog}
+        ownerActionsAvailable={ownerActionsAvailable}
+        onClose={owner.close}
+        onOpen={workerOpen}
+        onRestore={owner.restore}
+      />
     </>
   )
 }

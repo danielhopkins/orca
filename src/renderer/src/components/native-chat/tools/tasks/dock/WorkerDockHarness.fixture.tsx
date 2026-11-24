@@ -11,6 +11,7 @@ import { workerDockFixturePane } from './worker-dock-pane-fixture'
 import { NativeChatBackgroundTasksStatus } from '../NativeChatBackgroundTasksStatus'
 import type { WorkerDockRowView } from './WorkerDockRow'
 import { WorkerDockProviderDetailsDialog } from './WorkerDockProviderDetailsDialog'
+import { WorkerDockResultDialogSlot } from './WorkerDockResultDialogSlot'
 
 // A live strip for the rendered interaction suite (tests/tools/worker-dock-rendered): it keeps its
 // own open state and answers Stop, Clear and Clear all the way the host does, a moment later.
@@ -110,6 +111,7 @@ function Harness({
   stopAll = false,
   incomplete = false,
   lazy = 0,
+  failReads = 0,
   details = false,
   ...options
 }: {
@@ -124,14 +126,21 @@ function Harness({
   /** Details arrive late: only the first `lazy` rows (host order) have them; a window loads 300ms
    *  after it is asked. */
   lazy?: number
+  /** The first this-many detail reads fail, as a dropped connection would. */
+  failReads?: number
   /** Opening a command shows its details dialog, as a chat does. */
   details?: boolean
 } & Seed) {
   const [rows, setRows] = useState(() => seed(count, failed, remote, options))
   const [detailed, setDetailed] = useState(() => new Set(rows.slice(0, lazy).map((row) => row.id)))
   const [shown, setShown] = useState<{ row: WorkerDockRowView; opener: HTMLElement } | null>(null)
+  const [failures] = useState(() => ({ left: failReads }))
   const loadWindow = async (anchor: string) => {
     await new Promise((resolve) => setTimeout(resolve, 300))
+    if (failures.left > 0) {
+      failures.left--
+      throw new Error('fixture read failed')
+    }
     const at = rows.findIndex((row) => row.id === anchor)
     setDetailed(
       (current) =>
@@ -156,8 +165,14 @@ function Harness({
       finish: (id) => setRows((current) => current.filter((row) => row.id !== id))
     }
     Object.assign(window, { __workerDockHarness: api })
+    // Every mounted harness, in mount order, for scenes with more than one pane.
+    const all = ((
+      window as unknown as { __workerDockHarnesses?: HarnessApi[] }
+    ).__workerDockHarnesses ??= [])
+    all.push(api)
     return () => {
       Reflect.deleteProperty(window, '__workerDockHarness')
+      all.splice(all.indexOf(api), 1)
     }
   }, [count, events, remote])
   const [cleared] = useState(() => new Map<string, WorkerDockRowView>())
@@ -240,6 +255,15 @@ function Harness({
         onWorkerAction={owner.action}
         onClearAll={owner.clearAll}
       />
+      {details ? (
+        <WorkerDockResultDialogSlot
+          dialog={owner.dialog}
+          ownerActionsAvailable
+          onClose={owner.close}
+          onOpen={(row) => record({ action: 'open', id: row.id })}
+          onRestore={owner.restore}
+        />
+      ) : null}
       {shown ? (
         <WorkerDockProviderDetailsDialog
           row={shown.row}
@@ -279,6 +303,12 @@ export const lazyHundredOpen720 = defineFixture({
   width: 720,
   render: () => workerDockFixturePane(<Harness count={100} failed={0} lazy={50} open />)
 })
+// The first two detail reads fail; a later key press recovers the last row.
+export const lazyFailingOpen720 = defineFixture({
+  width: 720,
+  render: () =>
+    workerDockFixturePane(<Harness count={100} failed={0} lazy={50} failReads={2} open />)
+})
 // The host's first 50 are newer queued workers; the two older running ones lead the card unloaded.
 export const reorderOpen720 = defineFixture({
   width: 720,
@@ -291,7 +321,7 @@ export const twoPanesCommand720 = defineFixture({
     <div className="flex gap-2">
       {[0, 1].map((pane) => (
         <div key={pane} data-fixture-pane={pane} className="min-w-0 flex-1">
-          {workerDockFixturePane(<Harness count={2} failed={0} command details open />)}
+          {workerDockFixturePane(<Harness count={2} failed={1} command details open />)}
         </div>
       ))}
     </div>

@@ -34,6 +34,8 @@ export function NativeChatBackgroundTasksStatus(liveProps: {
   offersStopAll: boolean
   /** Some running work is not listed, so the rows are not the whole roster. */
   incomplete?: boolean
+  /** The worker read failed. */
+  unavailable?: boolean
   stoppingTaskIds: ReadonlySet<string>
   stoppingAll: boolean
   /** Let monitoring speak only when idle; a running turn owns the indicator. */
@@ -184,6 +186,7 @@ export function NativeChatBackgroundTasksStatus(liveProps: {
       countIdentities={countIdentities}
       visible={props.isVisible}
       incomplete={props.incomplete}
+      unavailable={props.unavailable}
       stopAll={
         props.offersStopAll
           ? { pending: props.stoppingAll, onStop: () => props.onStop() }

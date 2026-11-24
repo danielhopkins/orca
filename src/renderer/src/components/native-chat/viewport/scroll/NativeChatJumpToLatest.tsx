@@ -26,6 +26,7 @@ export function NativeChatJumpToLatest({
     <button
       type="button"
       data-shown={visible}
+      data-native-chat-jump-latest=""
       inert={!visible}
       aria-hidden={!visible || undefined}
       onMouseDown={keepFocus}
