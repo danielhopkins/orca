@@ -37,7 +37,7 @@ class WorkerDockFeed {
   get unused(): boolean {
     return this.listeners.size === 0
   }
-  private loading = new Set<string>()
+  private loading = new Map<string, Promise<void>>()
   constructor(
     readonly target: RuntimeClientTarget,
     readonly party: string
@@ -180,11 +180,23 @@ class WorkerDockFeed {
     }
   }
   read = (): State => this.state
-  window = async (anchor: string): Promise<void> => {
-    if (!this.listeners.size || this.loading.has(anchor)) {
-      return
+  /** One read per anchor at a time: a second ask while it runs waits on the same read, so a caller
+   *  counting its tries counts real requests. */
+  window = (anchor: string): Promise<void> => {
+    if (!this.listeners.size) {
+      return Promise.resolve()
     }
-    this.loading.add(anchor)
+    const running = this.loading.get(anchor)
+    if (running) {
+      return running
+    }
+    const read = this.readWindow(anchor).finally(() => {
+      this.loading.delete(anchor)
+    })
+    this.loading.set(anchor, read)
+    return read
+  }
+  private async readWindow(anchor: string): Promise<void> {
     const generation = this.generation
     const revision = this.state.snapshot?.revision
     try {
@@ -201,8 +213,6 @@ class WorkerDockFeed {
       if (generation === this.generation && this.state.snapshot?.revision === revision) {
         this.publish(null, false)
       }
-    } finally {
-      this.loading.delete(anchor)
     }
   }
 }

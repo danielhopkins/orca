@@ -17,7 +17,7 @@ const loaded = (page, id) =>
     return state && state !== 'loading'
   }, rowOf(id))
 
-export async function runLoadingAndLayerChecks({ check, scene, assert }) {
+export async function runLoadingAndLayerChecks({ check, scene, assert, shot }) {
   await check('incomplete monitoring with no listed rows keeps the pill and Stop all', () =>
     scene('unlistedOpen720', {}, async (page) => {
       const title = await page.locator('[data-worker-dock-pill-title]').textContent()
@@ -93,6 +93,12 @@ export async function runLoadingAndLayerChecks({ check, scene, assert }) {
       )
       await page.keyboard.press('Escape')
       await dialog.waitFor({ state: 'detached' })
+      // The dialog hands focus back a tick after it leaves.
+      await page
+        .waitForFunction(() => document.activeElement?.closest('[data-fixture-pane]'), undefined, {
+          timeout: 1000
+        })
+        .catch(() => {})
       const where = await page.evaluate(() => {
         const active = document.activeElement
         return {
@@ -201,10 +207,10 @@ export async function runLoadingAndLayerChecks({ check, scene, assert }) {
 
   for (const [label, options] of [
     ['normal height', {}],
-    ['a 340 x 250 pane', { width: 340, height: 250 }]
+    ['a 300 x 250 pane', { width: 340, height: 250 }]
   ]) {
     await check(`a full click on Jump to latest over the open card jumps (${String(label)})`, () =>
-      scene('jumpFolded720', options, async (page) => {
+      scene(options.height ? 'jumpFolded300' : 'jumpFolded720', options, async (page) => {
         await toggle(page).click()
         await card(page).waitFor()
         await page.waitForTimeout(200)
@@ -221,4 +227,132 @@ export async function runLoadingAndLayerChecks({ check, scene, assert }) {
       })
     )
   }
+
+  const toTop = (page, pane = page) =>
+    pane.locator('[data-fixture-transcript]').evaluate((element) => {
+      element.scrollTop = 0
+      element.dispatchEvent(new Event('scroll'))
+    })
+  const atEnd = (pane) =>
+    pane
+      .locator('[data-fixture-transcript]')
+      .evaluate((element) => element.scrollTop + element.clientHeight >= element.scrollHeight - 2)
+  // Jump to latest is either wholly in the pane and one click jumps, or (a pane too short for the
+  // card and Jump both) out of reach entirely while the card is open and back once it folds.
+  const jumpWorks = async (page) => {
+    const jump = page.getByRole('button', { name: 'Jump to latest' })
+    if (!(await jump.isVisible())) {
+      await toggle(page).click()
+      await card(page).waitFor({ state: 'detached' })
+      await page.waitForTimeout(200)
+    }
+    const box = await jump.boundingBox()
+    assert(box.y >= 0, `Jump to latest is off the pane at y=${box.y}`)
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2)
+    await page.waitForTimeout(250)
+    assert(await atEnd(page), 'one click did not jump to the end')
+  }
+
+  await check(
+    'Jump to latest stays wholly reachable as the footer appears and the message box grows',
+    () =>
+      scene('jumpFolded300', { width: 340, height: 250 }, async (page) => {
+        await toggle(page).click()
+        await card(page).waitFor()
+        await page.evaluate(() => window.__workerDockHarness.fail('Another failure'))
+        await page.locator('[data-worker-dock-footer]').waitFor()
+        await page.waitForTimeout(200)
+        await shot?.(page, 'jump-short-pane-open')
+        await jumpWorks(page)
+        if (!(await expanded(page))) {
+          await toggle(page).click()
+          await card(page).waitFor()
+        }
+        await toTop(page)
+        await page.locator('[data-fixture-composer]').evaluate((element) => {
+          element.style.height = '96px'
+        })
+        await page.waitForTimeout(300)
+        await jumpWorks(page)
+      })
+  )
+
+  await check(
+    'a detail read held across a roster change is not asked again, and a fresh one follows a stale reply',
+    () =>
+      scene('lazyHundredOpen720', {}, async (page) => {
+        await page.evaluate(() => window.__workerDockHarness.holdReads())
+        await page.locator('[data-worker-dock-open]').first().focus()
+        await page.keyboard.press('End')
+        await focusedIs(page, 'dock:99')
+        await page.waitForTimeout(200)
+        await page.evaluate(() => window.__workerDockHarness.start('Newer metadata'))
+        await page.waitForTimeout(150)
+        for (let press = 0; press < 4; press++) {
+          await page.keyboard.press('End')
+          await page.waitForTimeout(100)
+        }
+        // Rows in view may shift with the new worker and ask for their own window; a held one is
+        // never asked for twice.
+        const reads = await page.evaluate(() => window.__workerDockHarness.reads)
+        const repeated = reads.filter((anchor, index) => reads.indexOf(anchor) !== index)
+        assert(reads.includes('dock:99'), `the last row was never asked for: ${reads.join()}`)
+        assert(repeated.length === 0, `held reads were asked again: ${repeated.join()}`)
+        await page.evaluate(() => window.__workerDockHarness.releaseReads(true))
+        await page.waitForTimeout(150)
+        await page.keyboard.press('End')
+        await page.waitForTimeout(100)
+        const last = await focusedRow(page)
+        assert(last, 'End left the list')
+        await loaded(page, last)
+        await page.keyboard.press('Enter')
+        const opened = (await events(page)).filter((event) => event.action === 'open')
+        assert(
+          opened.at(-1)?.id === last,
+          `Enter opened ${opened.at(-1)?.id}, focus was on ${last}`
+        )
+      })
+  )
+
+  for (const [when, early] of [
+    ['while its result is loading', true],
+    ['while its result is open', false]
+  ]) {
+    await check(
+      `when the last worker leaves ${when}, closing its result focuses the message box`,
+      () =>
+        scene('lastFailedDetails720', {}, async (page) => {
+          await page.locator(`${rowOf('dock:0')} [data-worker-dock-open]`).click()
+          if (early) {
+            await page.evaluate(() => window.__workerDockHarness.finish('dock:0'))
+          }
+          const dialog = page.getByRole('dialog')
+          await dialog.waitFor()
+          if (!early) {
+            await page.evaluate(() => window.__workerDockHarness.finish('dock:0'))
+          }
+          await page.locator('[data-worker-dock-pill]').waitFor({ state: 'detached' })
+          await page.keyboard.press('Escape')
+          await dialog.waitFor({ state: 'detached' })
+          await page.waitForTimeout(100)
+          const onComposer = await page.evaluate(() =>
+            document.activeElement?.hasAttribute('data-fixture-composer')
+          )
+          assert(onComposer, 'focus did not land on the pane’s message box')
+        })
+    )
+  }
+
+  await check('another pane’s Jump to latest folds this pane’s card; its own does not', () =>
+    scene('twoPanesCommand720', { width: 760 }, async (page) => {
+      const [first, second] = [0, 1].map((pane) => page.locator(`[data-fixture-pane="${pane}"]`))
+      await toTop(page, first)
+      await page.waitForTimeout(200)
+      await first.getByRole('button', { name: 'Jump to latest' }).click()
+      await page.waitForTimeout(250)
+      assert(await atEnd(first), 'pane one did not jump')
+      assert(await expanded(first), 'pane one’s own Jump folded its card')
+      assert(!(await expanded(second)), 'pane two’s card stayed open')
+    })
+  )
 }

@@ -10,8 +10,14 @@ export function useWorkerDockDetailReads(
   loadWindow: ((anchor: string) => Promise<void>) | undefined
 ): (anchor: string) => void {
   const reads = useRef(new Map<string, { tries: number; pending: boolean }>())
+  // A roster change resets the budget, but a read still running keeps its place: it is the same
+  // request, and its reply (or its failure) is what frees the anchor for the next one.
   useEffect(() => {
-    reads.current = new Map()
+    reads.current = new Map(
+      [...reads.current].flatMap(([anchor, read]) =>
+        read.pending ? [[anchor, { tries: 1, pending: true }] as const] : []
+      )
+    )
   }, [identities])
   return useCallback(
     (anchor: string) => {
@@ -25,7 +31,11 @@ export function useWorkerDockDetailReads(
       void loadWindow(anchor)
         .catch(() => {})
         .finally(() => {
-          read.pending = false
+          // The entry may have been carried into a new roster's map; free whichever holds it.
+          const current = reads.current.get(anchor)
+          if (current) {
+            current.pending = false
+          }
         })
     },
     [loadWindow]

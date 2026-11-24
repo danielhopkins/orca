@@ -18,6 +18,7 @@ import {
 } from './worker-dock-scroll-anchor'
 import { WorkerDockCardFooter } from './WorkerDockCardFooter'
 import { useWorkerDockCardFocus } from './use-worker-dock-card-focus'
+import { useWorkerDockCardBudget, WORKER_DOCK_ROW } from './use-worker-dock-card-budget'
 import { useWorkerDockDetailReads } from './use-worker-dock-detail-reads'
 import {
   WORKER_DOCK_FLOAT_CLASS,
@@ -34,10 +35,6 @@ type Identity = {
   ownerActionsAvailable?: boolean
   settlement?: string | null
 }
-
-const ROW = 30
-const MAX_ROWS = 6
-const JUMP_ROOM = 40
 
 /** The chat's open workers as one floating pill over the end of the transcript; pressing it opens
  *  a card of every worker above it. Nothing is drawn behind either, so the chat stays readable. */
@@ -109,7 +106,7 @@ export function WorkerDockRoster(props: {
   const small = items.length <= 30
   const activeIndex = useMemo(() => items.findIndex((row) => row.id === focused), [items, focused])
   const rowKeys = useMemo(() => items.map((item) => ({ key: item.id })), [items])
-  const estimateSize = useCallback(() => ROW, [])
+  const estimateSize = useCallback(() => WORKER_DOCK_ROW, [])
   const extractRange = useCallback(
     (range: Parameters<typeof defaultRangeExtractor>[0]) => {
       const indices = defaultRangeExtractor(range)
@@ -130,23 +127,16 @@ export function WorkerDockRoster(props: {
   })
   const virtual = rowWindow.virtualizer
   const visibleItems = rowWindow.drawn
-  // Six rows, or less when the chat above the pill is shorter: the card never runs off the pane.
-  const [budget, setBudget] = useState(ROW * MAX_ROWS)
   const [fade, setFade] = useState<string | undefined>(undefined)
   const refade = () =>
     setFade(viewport.current ? workerDockScrollFade(viewport.current) : undefined)
-  const measure = useLatestHandler(() => {
-    const pane = root.current?.closest('[data-native-chat-root]')?.getBoundingClientRect()
-    const pillTop = pill.current?.getBoundingClientRect().top
-    const footer = root.current?.querySelector<HTMLElement>('[data-worker-dock-footer]')
-    if (!pane || pillTop === undefined) {
-      return
-    }
-    // Above the card: its 8px gap and padding, then room for Jump to latest (32px + 8px) and 8px.
-    const room = pillTop - pane.top - 8 - 10 - (footer?.offsetHeight ?? 0) - JUMP_ROOM - 8
-    setBudget(Math.max(ROW, Math.min(ROW * MAX_ROWS, room)))
+  const budget = useWorkerDockCardBudget({
+    root,
+    pill,
+    card,
+    open: props.expanded,
+    rows: items.length
   })
-  useLayoutEffect(measure, [measure, props.expanded, items.length])
   // oxlint-disable-next-line react-hooks/exhaustive-deps -- re-read after the list's size changes
   useLayoutEffect(refade, [props.expanded, items.length, budget])
   // With no rows, the pill says only what is known: the provider reports work it does not list,
@@ -154,15 +144,6 @@ export function WorkerDockRoster(props: {
   const unlisted = items.length === 0 && Boolean(props.incomplete)
   const unread = items.length === 0 && !unlisted && Boolean(props.unavailable)
   const shown = items.length > 0 || unlisted || unread
-  useEffect(() => {
-    const pane = root.current?.closest('[data-native-chat-root]')
-    if (!pane || !props.expanded || typeof ResizeObserver === 'undefined') {
-      return
-    }
-    const observer = new ResizeObserver(measure)
-    observer.observe(pane)
-    return () => observer.disconnect()
-  }, [measure, props.expanded, shown])
   const close = useLatestHandler((refocus: boolean) => {
     setHeld(null)
     props.onExpandedChange(false)

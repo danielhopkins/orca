@@ -96,10 +96,9 @@ export function WorkerDockPill({
   )
 }
 
-// Jump to latest is stacked in the card's slot: pressing it must not fold the card and move it
-// out from under the pointer before the click lands.
+// A dialog, menu or toast a row opened is portalled out of the card but still belongs to it.
 const KEEPS_CARD_OPEN =
-  '[role="dialog"],[role="alertdialog"],[data-radix-popper-content-wrapper],[data-sonner-toaster],[data-native-chat-jump-latest]'
+  '[role="dialog"],[role="alertdialog"],[data-radix-popper-content-wrapper],[data-sonner-toaster]'
 
 /** While the card is open, a press anywhere outside the pill and the card folds it, as Escape does. */
 export function useWorkerDockOutsidePress(
@@ -114,13 +113,17 @@ export function useWorkerDockOutsidePress(
     }
     const press = (event: PointerEvent) => {
       const target = event.target
-      // A dialog, menu or toast a row opened is portalled out of the card but still belongs to it:
-      // folding under it would unmount the row it returns focus to.
-      if (
-        target instanceof Element &&
-        !root.current?.contains(target) &&
-        !target.closest(KEEPS_CARD_OPEN)
-      ) {
+      if (!(target instanceof Element) || root.current?.contains(target)) {
+        return
+      }
+      // Folding under a row's dialog would unmount the row it returns focus to. This pane's Jump to
+      // latest shares the card's slot: folding on its press would move it before the click lands.
+      // Another pane's Jump is just outside.
+      const pane = root.current?.closest('[data-native-chat-root]')
+      const ownJump = Boolean(
+        pane?.contains(target) && target.closest('[data-native-chat-jump-latest]')
+      )
+      if (!ownJump && !target.closest(KEEPS_CARD_OPEN)) {
         fold()
       }
     }

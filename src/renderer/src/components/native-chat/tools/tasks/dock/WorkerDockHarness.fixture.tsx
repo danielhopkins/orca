@@ -10,36 +10,13 @@ import { defineFixture } from '../../../../../component-fixtures/component-fixtu
 import { workerDockFixturePane } from './worker-dock-pane-fixture'
 import { NativeChatBackgroundTasksStatus } from '../NativeChatBackgroundTasksStatus'
 import type { WorkerDockRowView } from './WorkerDockRow'
+import { SOURCE, seed, worker, type Seed } from './worker-dock-seed-fixture'
 import { WorkerDockProviderDetailsDialog } from './WorkerDockProviderDetailsDialog'
 import { WorkerDockResultDialogSlot } from './WorkerDockResultDialogSlot'
 
 // A live strip for the rendered interaction suite (tests/tools/worker-dock-rendered): it keeps its
 // own open state and answers Stop, Clear and Clear all the way the host does, a moment later.
 const LOCAL = { kind: 'local' } as const
-const SOURCE = '6c3f8e4a-ad5b-4a9c-9e37-2f4d8a0b3c59'
-const TITLES = [
-  'Fix streaming journal amplification',
-  'Fix repeated worktree catalog scans',
-  'Cache the branch list per repository',
-  'Drop the duplicate status poll',
-  'Batch the sidebar badge writes',
-  'Stream the diff instead of buffering it',
-  'Reuse the parsed config between tabs',
-  'Coalesce terminal resize events',
-  'Skip hidden pane layout passes',
-  'Index session history by worktree',
-  'Defer the plugin manifest scan',
-  'Trim the startup font preload',
-  'Share one watcher per repository',
-  'Avoid re-sorting the unchanged roster',
-  'Split the dock read model',
-  'Bound the activity refresh',
-  'Drop the second layout read',
-  'Keep the composer height stable',
-  'Collapse duplicate wakes',
-  'Name the answering turn'
-]
-
 type WorkerDockHarnessEvent = {
   action: 'remote-stop' | 'stop-all' | 'stop' | 'clear' | 'clear-all' | 'open' | 'restore'
   id: string
@@ -47,66 +24,20 @@ type WorkerDockHarnessEvent = {
 type HarnessApi = {
   events: WorkerDockHarnessEvent[]
   start: (title: string) => void
+  /** Adds a failure that can be cleared, so a second one brings Clear failed into the footer. */
+  fail: (title: string) => void
   finish: (id: string) => void
+  /** Every detail read asked of the host, by anchor. */
+  reads: string[]
+  /** Holds detail reads until released; a stale release answers them with nothing new. */
+  holdReads: () => void
+  releaseReads: (stale: boolean) => void
 }
 declare global {
   // oxlint-disable-next-line typescript/consistent-type-definitions -- Window requires declaration merging.
   interface Window {
     __workerDockHarnesses?: HarnessApi[]
   }
-}
-
-function worker(index: number, state: WorkerDockRowView['state'], remote: boolean) {
-  const at = Date.now() - (index + 2) * 60_000
-  const failed = state === 'failed' || state === 'unexpected'
-  return {
-    kind: 'worker',
-    id: `dock:${index}`,
-    dispatchId: `ctx_fixture_${index}`,
-    source: SOURCE,
-    name: `ORCA-${30 + index}`,
-    title: TITLES[index % TITLES.length],
-    model: 'gpt-6.1-sol',
-    state,
-    changedAt: at,
-    startedAt: at,
-    reason: failed ? 'Typecheck failed: 3 errors in worker-dock-read.ts' : null,
-    settlement: failed ? `settled:ctx_fixture_${index}` : null,
-    resultId: failed ? `result:ctx_fixture_${index}` : null,
-    stoppable: state === 'running',
-    ownerActionsAvailable: !remote
-  } satisfies WorkerDockRowView
-}
-
-const LONG_TITLE =
-  'Fix-forward: bind the listing to the resolver so a renamed branch keeps its open pull request and review comments'
-
-type Seed = { ask?: boolean; variety?: boolean; long?: boolean; reorder?: boolean }
-function seed(count: number, failed: number, remote: boolean, options: Seed): WorkerDockRowView[] {
-  return Array.from({ length: count }, (_, index) => {
-    // Reorder: the host lists newer queued workers first; the card puts the two older running first.
-    const state =
-      index < failed ? 'failed' : options.reorder && index < count - 2 ? 'coordinator' : 'running'
-    const row = worker(index, state, remote)
-    const title = options.long && index % 2 === 0 ? `${LONG_TITLE} (${index + 1})` : row.title
-    // The newest running worker asks a question: it outranks the failures in the pill and card.
-    if (options.ask && index === failed) {
-      return {
-        ...row,
-        title,
-        state: 'needs-you' as const,
-        changedAt: Date.now() - 30_000,
-        question: 'Approve: run the migration against the staging copy of the orders database?'
-      }
-    }
-    if (options.variety && count >= 3 && index === count - 1) {
-      return { ...row, title, state: 'idle' as const, stoppable: false }
-    }
-    if (options.variety && count >= 4 && index === count - 2) {
-      return { ...row, title, state: 'coordinator' as const }
-    }
-    return { ...row, title }
-  })
 }
 
 function Harness({
@@ -142,8 +73,20 @@ function Harness({
   const [detailed, setDetailed] = useState(() => new Set(rows.slice(0, lazy).map((row) => row.id)))
   const [shown, setShown] = useState<{ row: WorkerDockRowView; opener: HTMLElement } | null>(null)
   const [failures] = useState(() => ({ left: failReads }))
+  const [reads] = useState(() => ({
+    log: [] as string[],
+    hold: false,
+    waiting: [] as ((stale: boolean) => void)[]
+  }))
   const loadWindow = async (anchor: string) => {
-    await new Promise((resolve) => setTimeout(resolve, 300))
+    reads.log.push(anchor)
+    if (reads.hold) {
+      if (await new Promise<boolean>((resolve) => reads.waiting.push(resolve))) {
+        return
+      }
+    } else {
+      await new Promise((resolve) => setTimeout(resolve, 300))
+    }
     if (failures.left > 0) {
       failures.left--
       throw new Error('fixture read failed')
@@ -169,7 +112,21 @@ function Harness({
         const row = { ...worker(next++, 'running', remote), title }
         setRows((current) => [row, ...current])
       },
-      finish: (id) => setRows((current) => current.filter((row) => row.id !== id))
+      fail: (title) => {
+        const row = { ...worker(next++, 'failed', remote), title, changedAt: Date.now() }
+        setRows((current) => [row, ...current])
+      },
+      finish: (id) => setRows((current) => current.filter((row) => row.id !== id)),
+      reads: reads.log,
+      holdReads: () => {
+        reads.hold = true
+      },
+      releaseReads: (stale) => {
+        reads.hold = false
+        for (const answer of reads.waiting.splice(0)) {
+          answer(stale)
+        }
+      }
     }
     Object.assign(window, { __workerDockHarness: api })
     // Every mounted harness, in mount order, for scenes with more than one pane.
@@ -179,7 +136,7 @@ function Harness({
       Reflect.deleteProperty(window, '__workerDockHarness')
       all.splice(all.indexOf(api), 1)
     }
-  }, [count, events, remote])
+  }, [count, events, remote, reads])
   const [cleared] = useState(() => new Map<string, WorkerDockRowView>())
   const record = (event: WorkerDockHarnessEvent) => events.push(event)
   const rpc = useLatestHandler(
@@ -202,6 +159,9 @@ function Harness({
           const restored = [...ids].flatMap((id) => cleared.get(id) ?? [])
           setRows((current) => [...restored, ...current])
         }
+      } else if (method === 'orchestration.workerDockResult') {
+        // A moment, as a host takes: a row can leave while its result is still on the way.
+        await new Promise((resolve) => setTimeout(resolve, 300))
       } else if (method === 'orchestration.workerDockStop') {
         const { dispatch } = WorkerDockStop.parse(params)
         const row = rows.find((item) => item.dispatchId === dispatch)
@@ -308,6 +268,11 @@ export const lazyHundredOpen720 = defineFixture({
   width: 720,
   render: () => workerDockFixturePane(<Harness count={100} failed={0} lazy={50} open />)
 })
+// The only worker has failed; opening it shows its result.
+export const lastFailedDetails720 = defineFixture({
+  width: 720,
+  render: () => workerDockFixturePane(<Harness count={1} failed={1} details open />)
+})
 // The first two detail reads fail; a later key press recovers the last row.
 export const lazyFailingOpen720 = defineFixture({
   width: 720,
@@ -367,6 +332,19 @@ export const longOpen300 = defineFixture({
 // Scrolled up from the end, so Jump to latest shows and stacks above the pill.
 export const jumpFolded720 = defineFixture({
   width: 720,
+  render: () => workerDockFixturePane(<Harness count={3} failed={1} />),
+  interact: async (frame) => {
+    const transcript = frame.querySelector<HTMLElement>('[data-fixture-transcript]')
+    if (transcript) {
+      transcript.scrollTop = 0
+      transcript.dispatchEvent(new Event('scroll'))
+    }
+    await new Promise((resolve) => setTimeout(resolve, 300))
+  }
+})
+
+export const jumpFolded300 = defineFixture({
+  width: 300,
   render: () => workerDockFixturePane(<Harness count={3} failed={1} />),
   interact: async (frame) => {
     const transcript = frame.querySelector<HTMLElement>('[data-fixture-transcript]')

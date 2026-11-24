@@ -136,7 +136,7 @@ export function workerDockFixturePane(
         {sections === 'queue' || sections === 'both' ? (
           <NativeChatQueuedMessageList controller={queue} chatWorktreeId={null} />
         ) : null}
-        <div className="shrink-0 px-3 pt-2 pb-4 sm:px-4">
+        <div data-native-chat-composer-scope="fixture" className="shrink-0 px-3 pt-2 pb-4 sm:px-4">
           <div className="rounded-xl border border-chat-composer-border bg-chat-composer-surface p-1.5 shadow-xs">
             <textarea
               data-fixture-composer=""

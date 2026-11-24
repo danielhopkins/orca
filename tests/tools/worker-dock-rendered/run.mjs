@@ -495,7 +495,7 @@ await check('Show in dock again restores the acknowledged failure', () =>
   })
 )
 
-await runLoadingAndLayerChecks({ check, scene, assert })
+await runLoadingAndLayerChecks({ check, scene, assert, shot })
 
 await check('Jump to latest stacks 8px above the pill and never overlaps it', () =>
   scene('jumpFolded720', {}, async (page) => {
