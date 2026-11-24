@@ -1,6 +1,7 @@
 import { useIntlLocale, useTranslate } from '@/i18n/use-translate'
 import { workerDockKindLabel, workerDockStateLabel } from './worker-dock-labels'
 import { memo } from 'react'
+import { cn } from '@/lib/class-names'
 import { ArrowRight } from 'lucide-react'
 import { WorkerDockRowAction } from './WorkerDockRowAction'
 import { WorkerDockGlyph } from './WorkerDockGlyph'
@@ -39,7 +40,7 @@ function Age({ at, visible }: { at: number | null; visible: boolean }) {
   )
 }
 
-/** One 30px card row: status mark, title, time, then Stop or Clear and an arrow on hover or focus.
+/** One 30px card row: status mark, title, time; on hover or focus Stop or Clear and an arrow cover the time.
  *  The open button stretches over the whole row, so a press anywhere but the action opens it. A row
  *  whose details have not arrived yet keeps the same button, so focus on it survives their arrival. */
 export const WorkerDockRow = memo(function WorkerDockRow({
@@ -98,7 +99,7 @@ export const WorkerDockRow = memo(function WorkerDockRow({
     <div
       data-worker-dock-row={rowId}
       data-worker-dock-state={row?.state ?? 'loading'}
-      className="group/worker relative flex h-[30px] min-w-0 items-center gap-1 rounded-md pr-2 text-foreground hover:bg-accent has-focus-visible:bg-accent"
+      className="group/worker relative flex h-[30px] min-w-0 items-center rounded-md pr-2 text-foreground hover:bg-accent has-focus-visible:bg-accent"
     >
       <button
         type="button"
@@ -117,12 +118,25 @@ export const WorkerDockRow = memo(function WorkerDockRow({
         <span className="min-w-0 flex-1 truncate">{title}</span>
         {row ? <Age at={row.changedAt} visible={visible} /> : null}
       </button>
-      {row ? <WorkerDockRowAction row={row} pending={pending} onAction={onAction} /> : null}
-      <ArrowRight
-        aria-hidden="true"
-        data-worker-dock-arrow=""
-        className="pointer-events-none size-3 shrink-0 text-muted-foreground opacity-0 group-hover/worker:opacity-100 group-has-focus-visible/worker:opacity-100"
-      />
+      {/* Over the time on hover or focus, so at rest the title has the row's whole width. At rest it
+          is transparent and takes no presses (a press there opens the row), but stays in the
+          accessibility tree and the tab order; focus inside the row shows it. */}
+      <div
+        data-worker-dock-hover=""
+        className={cn(
+          'pointer-events-none absolute inset-y-0 right-0 flex items-center gap-1 rounded-r-md bg-accent pr-2 pl-1.5',
+          pending
+            ? 'opacity-100 [&>*]:pointer-events-auto'
+            : 'opacity-0 group-hover/worker:opacity-100 group-hover/worker:[&>*:not(svg)]:pointer-events-auto group-focus-within/worker:opacity-100 [@media(pointer:coarse)]:opacity-100 [@media(pointer:coarse)]:[&>*:not(svg)]:pointer-events-auto'
+        )}
+      >
+        {row ? <WorkerDockRowAction row={row} pending={pending} onAction={onAction} /> : null}
+        <ArrowRight
+          aria-hidden="true"
+          data-worker-dock-arrow=""
+          className="pointer-events-none size-3 shrink-0 text-muted-foreground"
+        />
+      </div>
     </div>
   )
 })

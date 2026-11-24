@@ -68,3 +68,16 @@ export function workerDockRowKeyTarget(key: string, index: number, length: numbe
       return null
   }
 }
+
+/** A soft edge where the card's list has more rows out of view: at the bottom while rows remain
+ *  below, at the top once it has scrolled. Undefined when everything fits. */
+export function workerDockScrollFade(element: HTMLElement): string | undefined {
+  const top = element.scrollTop > 1
+  const bottom = element.scrollTop + element.clientHeight < element.scrollHeight - 1
+  if (!top && !bottom) {
+    return undefined
+  }
+  const start = top ? 'transparent, black 16px' : 'black'
+  const end = bottom ? 'black calc(100% - 16px), transparent' : 'black'
+  return `linear-gradient(to bottom, ${start}, ${end})`
+}

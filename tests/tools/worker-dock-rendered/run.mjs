@@ -27,6 +27,8 @@ const { browser, results, warmPage, open, check, assert, scene } = await createF
   fixture: FIXTURE
 })
 
+// Stop and Clear take presses only once their row is hovered, as a pointer always passes over it.
+const rowOfAction = (action) => action.locator('xpath=ancestor::*[@data-worker-dock-row][1]')
 const shot = async (page, name) => {
   if (shots) {
     mkdirSync(shots, { recursive: true })
@@ -282,28 +284,63 @@ await check('Tab walks into the rows and keeps the focused row in view', () =>
   })
 )
 
-await check('hover shows Stop and the arrow; neither shows at rest', () =>
+await check('hover shows Stop and the arrow over the time; neither shows at rest', () =>
   scene('fourOpen720', {}, async (page) => {
     const row = page.locator('[data-worker-dock-row="dock:2"]')
-    const opacity = () =>
-      row.evaluate((element) => [
-        getComputedStyle(element.querySelector('[data-worker-dock-arrow]')).opacity,
-        getComputedStyle(element.querySelector('[data-worker-dock-action]').parentElement).opacity
-      ])
+    const shown = () =>
+      row.evaluate(
+        (element) => getComputedStyle(element.querySelector('[data-worker-dock-hover]')).opacity
+      )
     await page.mouse.move(1, 1)
-    assert(
-      (await opacity()).every((value) => value === '0'),
-      `at rest: ${await opacity()}`
-    )
+    assert((await shown()) === '0', `at rest: ${await shown()}`)
+    // At rest a press where Stop will appear opens the row instead.
+    const hit = await row.evaluate((element) => {
+      const action = element.querySelector('[data-worker-dock-action]').getBoundingClientRect()
+      return document
+        .elementFromPoint(action.x + action.width / 2, action.y + action.height / 2)
+        ?.closest('[data-worker-dock-open],[data-worker-dock-action]')
+        ?.hasAttribute('data-worker-dock-open')
+    })
+    assert(hit, 'an invisible Stop takes presses at rest')
     await row.hover()
     await page.waitForTimeout(100)
-    assert(
-      (await opacity()).every((value) => value === '1'),
-      `on hover: ${await opacity()}`
-    )
+    assert((await shown()) === '1', `on hover: ${await shown()}`)
     const [rowBox, fillTarget] = await Promise.all([row.boundingBox(), region(page).boundingBox()])
     assert(Math.abs(rowBox.width - fillTarget.width) <= 1, 'hover fill stops short of the card')
     await shot(page, 'row-hover')
+  })
+)
+
+await check('the card is a fixed width and titles use the row at rest', () =>
+  scene('threeOpen720', {}, async (page) => {
+    const box = await card(page).boundingBox()
+    assert(Math.abs(box.width - 320) <= 1, `card is ${box.width}px wide`)
+    await page.mouse.move(1, 1)
+    const room = await page.evaluate(() => {
+      const row = document.querySelector('[data-worker-dock-row]')
+      const title = row.querySelector('[data-worker-dock-open] .truncate')
+      return row.getBoundingClientRect().right - title.getBoundingClientRect().right
+    })
+    assert(room <= 44, `the title stops ${room}px short of the row end at rest`)
+  })
+)
+
+await check('the list fades where rows are out of view', () =>
+  scene('twentyOpen720', {}, async (page) => {
+    const mask = () => region(page).evaluate((element) => getComputedStyle(element).maskImage)
+    // Computed colors read transparent back as rgba(0, 0, 0, 0).
+    const clear = (value) => (value.match(/rgba\(0, 0, 0, 0\)|transparent/g) ?? []).length
+    const first = await mask()
+    assert(first.includes('gradient') && clear(first) === 1, `at the top: ${first}`)
+    await region(page).evaluate((element) => {
+      element.scrollTop = 60
+      element.dispatchEvent(new Event('scroll'))
+    })
+    await page.waitForTimeout(100)
+    const middle = await mask()
+    assert(clear(middle) === 2, `mid-list: ${middle}`)
+    await open('threeOpen720', {})
+    assert((await mask()) === 'none', 'a list that fits is faded')
   })
 )
 
@@ -334,6 +371,7 @@ await check('X clears a failed row at once, even while hovered and focused', () 
     const before = await rows(page)
     const x = page.locator('[data-worker-dock-action]').first()
     const target = await x.getAttribute('data-worker-dock-action')
+    await rowOfAction(x).hover()
     await x.click()
     await page.waitForTimeout(300)
     const after = await rows(page)
@@ -418,6 +456,7 @@ await check('a remote chat shows no Stop or Clear that would do nothing', () =>
 await check('a paired chat command still stops', () =>
   scene('remoteCommand720', {}, async (page) => {
     const button = page.getByRole('button', { name: /Stop Command · Check the build/ })
+    await rowOfAction(button).hover()
     await button.click()
     assert(
       (await events(page)).some(
@@ -432,6 +471,7 @@ await check('a paired chat command still stops', () =>
 await check('Show in dock again restores the acknowledged failure', () =>
   scene('twentyOpen720', {}, async (page) => {
     const row = page.locator('[data-worker-dock-row="dock:0"]')
+    await row.hover()
     await row.locator('[data-worker-dock-action]').click()
     await row.waitFor({ state: 'detached' })
     await page.getByRole('button', { name: 'Show in dock again' }).click()
@@ -534,7 +574,7 @@ for (const [width, sceneName] of [
   await check(`narrow ${sceneName}: X sits inside the list and clears`, () =>
     scene(sceneName, { width, height: 800 }, async (page) => {
       const x = page.locator('[data-worker-dock-action]').first()
-      await x.hover()
+      await rowOfAction(x).hover()
       const box = await x.boundingBox()
       const list = await region(page).boundingBox()
       assert(box.x >= list.x && box.x + box.width <= list.x + list.width + 1, 'X outside the list')

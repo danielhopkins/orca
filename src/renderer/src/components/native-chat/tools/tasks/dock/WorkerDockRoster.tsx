@@ -13,6 +13,7 @@ import {
   workerDockAnchorIndex,
   workerDockRowKeyTarget,
   workerDockScrollAnchorAt,
+  workerDockScrollFade,
   type WorkerDockScrollAnchor
 } from './worker-dock-scroll-anchor'
 import { WorkerDockCardFooter } from './WorkerDockCardFooter'
@@ -131,6 +132,9 @@ export function WorkerDockRoster(props: {
   const visibleItems = rowWindow.drawn
   // Six rows, or less when the chat above the pill is shorter: the card never runs off the pane.
   const [budget, setBudget] = useState(ROW * MAX_ROWS)
+  const [fade, setFade] = useState<string | undefined>(undefined)
+  const refade = () =>
+    setFade(viewport.current ? workerDockScrollFade(viewport.current) : undefined)
   const measure = useLatestHandler(() => {
     const pane = root.current?.closest('[data-native-chat-root]')?.getBoundingClientRect()
     const pillTop = pill.current?.getBoundingClientRect().top
@@ -143,6 +147,8 @@ export function WorkerDockRoster(props: {
     setBudget(Math.max(ROW, Math.min(ROW * MAX_ROWS, room)))
   })
   useLayoutEffect(measure, [measure, props.expanded, items.length])
+  // oxlint-disable-next-line react-hooks/exhaustive-deps -- re-read after the list's size changes
+  useLayoutEffect(refade, [props.expanded, items.length, budget])
   // With no rows, the pill says only what is known: the provider reports work it does not list,
   // or the worker read failed (which claims nothing about whether anything runs).
   const unlisted = items.length === 0 && Boolean(props.incomplete)
@@ -293,7 +299,7 @@ export function WorkerDockRoster(props: {
             role="region"
             aria-label={t('components.native-chat.workerDock.workersRegion', 'Workers')}
             className="scrollbar-sleek min-h-0 overflow-y-auto overscroll-contain"
-            style={{ maxHeight: budget }}
+            style={{ maxHeight: budget, maskImage: fade }}
             onScroll={(event) => {
               anchor.current =
                 workerDockScrollAnchorAt(
@@ -303,6 +309,7 @@ export function WorkerDockRoster(props: {
                 ) ?? anchor.current
               hold()
               loadVisibleWindow()
+              refade()
             }}
             onKeyDown={(event) => {
               const row =

@@ -4,7 +4,6 @@ import { useRef, useState } from 'react'
 import { Square, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
-import { cn } from '@/lib/class-names'
 import type { WorkerDockRowView } from './WorkerDockRow'
 
 /** A dock row's Stop or Clear, which keeps the pressed intent through a structural update. */
@@ -37,15 +36,9 @@ export function WorkerDockRowAction({
   const action = focusedAction ?? (canClear ? 'clear' : 'stop')
   const unavailable = !canStop || pending
   return (
-    // Shown on row hover or focus (always on touch, and while a Stop is pending), above the row's
-    // stretched open button so a press here never opens the worker.
-    <div
-      className={cn(
-        'relative z-10 flex shrink-0 items-center',
-        !pending &&
-          'opacity-0 group-hover/worker:opacity-100 group-focus-within/worker:opacity-100 [@media(pointer:coarse)]:opacity-100'
-      )}
-    >
+    // Above the row's stretched open button, so a press here never opens the worker. The row shows
+    // it on hover or focus.
+    <div className="relative z-10 flex shrink-0 items-center">
       {canClear || canStop ? (
         <Tooltip>
           <TooltipTrigger asChild>
